@@ -18,6 +18,8 @@ esphome:
   on_boot:
     priority: -100  # Run after lights are restored
     then:
+      # NOTE: When adding a new light or button, register it here and
+      #       add a set_dim_direction_from_brightness call below.
       - lambda: |-
           id(light_registry)["led_1"] = id(led_1);
           id(light_registry)["led_2"] = id(led_2);
@@ -103,7 +105,7 @@ globals:
 # ========================================
 script:
   - id: log_debug_state
-    mode: queued
+    mode: parallel
     parameters:
       context: string
       light_id: string
@@ -121,7 +123,7 @@ script:
           }
 
   - id: ensure_min_brightness
-    mode: queued
+    mode: parallel
     parameters:
       light_id: string
     then:
@@ -135,7 +137,7 @@ script:
           }
 
   - id: set_dim_direction_from_brightness
-    mode: queued
+    mode: parallel
     parameters:
       light_id: string
     then:
@@ -148,7 +150,7 @@ script:
           }
 
   - id: toggle_light
-    mode: restart
+    mode: parallel
     parameters:
       light_id: string
     then:
@@ -169,7 +171,7 @@ script:
           light_id: !lambda 'return light_id;'
 
   - id: start_dimming
-    mode: restart
+    mode: parallel
     parameters:
       light_id: string
       button_id: string
@@ -196,7 +198,7 @@ script:
           light_id: !lambda 'return light_id;'
 
   - id: stop_dimming_or_toggle
-    mode: restart
+    mode: parallel
     parameters:
       light_id: string
     then:
