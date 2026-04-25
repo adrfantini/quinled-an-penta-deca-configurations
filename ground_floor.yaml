@@ -171,7 +171,7 @@ script:
           light_id: !lambda 'return light_id;'
 
   - id: start_dimming
-    mode: parallel
+    mode: queued # this needs to be queued otherwise multi-button presses may mess things up
     parameters:
       light_id: string
       button_id: string
