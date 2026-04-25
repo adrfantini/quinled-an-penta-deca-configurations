@@ -1,0 +1,200 @@
+substitutions:
+  esphome_name: test-an-penta-deca
+  min_brightness: "0.12"  # Minimum brightness threshold (12%)
+  dim_duration: "3s"      # Duration of dimming transition
+
+# ========================================
+# Core Configuration
+# ========================================
+esphome:
+  name: ${esphome_name}
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+# ========================================
+# Network Configuration
+# ========================================
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  domain: .domain.local
+  ap:
+    ssid: "Test-An-Penta-Deca"
+    password: "Cz6pyMLrL50A"
+
+web_server:
+  port: 80
+
+api:
+  reboot_timeout: 60min
+  encryption:
+    key: "R+8A1JK4uNrr11N6KMmKRQYDR8T7bvLyUt930s/TlJI="
+
+ota:
+  - platform: esphome
+    password: "74c3e4d1c89a84a26ac14d56e664c676"
+
+# ========================================
+# Peripherals
+# ========================================
+logger:
+
+i2c:
+  sda: 15
+  scl: 16
+  scan: true
+
+time:
+  - platform: homeassistant
+    id: homeassistant_time
+
+# ========================================
+# Global Variables
+# ========================================
+globals:
+  - id: dim_direction
+    type: bool
+    restore_value: true
+    initial_value: 'true'  # true = UP, false = DOWN
+  - id: is_dimming
+    type: bool
+    initial_value: 'false'
+
+# ========================================
+# Scripts (Reusable Actions)
+# ========================================
+script:
+  - id: log_debug_state
+    mode: single
+    parameters:
+      context: string
+    then:
+      - logger.log:
+          format: "[DEBUG %s] is_dimming: %s; dim_direction: %s; is_on: %s; brightness: %f"
+          args:
+            - context.c_str()
+            - 'id(is_dimming) ? "YES" : "NO"'
+            - 'id(dim_direction) ? "UP" : "DOWN"'
+            - 'id(LED1).current_values.is_on() ? "YES" : "NO"'
+            - 'id(LED1).current_values.get_brightness()'
+
+  - id: ensure_min_brightness
+    mode: single
+    then:
+      - if:
+          condition:
+            - light.is_on: LED1
+            - lambda: 'return id(LED1).current_values.get_brightness() < ${min_brightness};'
+          then:
+            - light.control:
+                id: LED1
+                brightness: ${min_brightness}
+
+  - id: set_dim_direction_from_brightness
+    mode: single
+    then:
+      - if:
+          condition:
+            - light.is_on: LED1
+          then:
+            - lambda: |-
+                id(dim_direction) = id(LED1).current_values.get_brightness() > 0.5 ? false : true;
+
+# ========================================
+# Outputs & Lights
+# ========================================
+output:
+  - platform: ledc
+    pin: 27
+    frequency: 19531Hz
+    id: LED_channel_1
+    zero_means_zero: true
+
+light:
+  - platform: monochromatic
+    name: "${esphome_name}-L1"
+    default_transition_length: 500ms
+    gamma_correct: 2.8
+    id: LED1
+    output: LED_channel_1
+    restore_mode: RESTORE_DEFAULT_OFF
+
+# ========================================
+# Sensors
+# ========================================
+sensor:
+  - platform: uptime
+    name: "${esphome_name}_Uptime Sensor"
+  - platform: internal_temperature
+    name: "${esphome_name} Internal Temp"
+    unit_of_measurement: "°C"
+
+switch:
+  - platform: restart
+    name: ${esphome_name}-restart
+    id: restart_switch
+
+# ========================================
+# Binary Sensors (Buttons)
+# ========================================
+
+binary_sensor:
+  - platform: gpio
+    pin: 36
+    name: "Button 1"
+    id: button_1
+    filters:
+      - invert:
+      - delayed_on_off: 50ms
+
+    # Short press: Toggle light
+    on_click:
+      min_length: 50ms
+      max_length: 400ms
+      then:
+        - light.toggle: LED1
+        - script.execute:
+            id: log_debug_state
+            context: "CLICK"
+        - script.execute: ensure_min_brightness
+        - script.execute: set_dim_direction_from_brightness
+
+    # Long press: Start dimming
+    on_press:
+      then:
+        - delay: 400ms
+        - if:
+            condition:
+              - binary_sensor.is_on: button_1
+              - light.is_on: LED1
+            then:
+              - lambda: 'id(is_dimming) = true;'
+              - light.control:
+                  id: LED1
+                  state: ON
+                  brightness: !lambda 'return id(dim_direction) ? 1.0 : ${min_brightness};'
+                  transition_length: ${dim_duration}
+              - script.execute:
+                  id: log_debug_state
+                  context: "PRESS"
+
+    # Release: Stop dimming and flip direction
+    on_release:
+      then:
+        - if:
+            condition:
+              lambda: 'return id(is_dimming);'
+            then:
+              - light.control:
+                  id: LED1
+                  brightness: !lambda 'return id(LED1).current_values.get_brightness();'
+                  transition_length: 0s
+              - lambda: |-
+                  id(dim_direction) = !id(dim_direction);
+                  id(is_dimming) = false;
+        - script.execute:
+            id: log_debug_state
+            context: "RELEASE"
