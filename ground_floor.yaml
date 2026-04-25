@@ -8,6 +8,7 @@ substitutions:
   MAX_CLICK_DURATION: 400ms     # Maximum click duration
   BUTTON_FILTER_DURATION: 50ms  # Button filter duration
   PWM_FREQUENCY: 19531Hz
+  GAMMA_CORRECTION: 2.8
 
 # ========================================
 # Core Configuration
@@ -19,11 +20,16 @@ esphome:
     then:
       - lambda: |-
           id(light_registry)["led_1"] = id(led_1);
+          id(light_registry)["led_2"] = id(led_2);
           id(button_registry)["button_1"] = id(button_1);
+          id(button_registry)["pcf8574_button_0"] = id(pcf8574_button_0);
       - delay: 1s  # Wait for light state to fully restore
       - script.execute:
           id: set_dim_direction_from_brightness
           light_id: led_1
+      - script.execute:
+          id: set_dim_direction_from_brightness
+          light_id: led_2
 
 esp32:
   board: esp32dev
@@ -64,6 +70,10 @@ i2c:
   sda: 15
   scl: 16
   scan: true
+
+pcf8574:
+  - id: pcf8574_hub
+    address: 0x20
 
 time:
   - platform: homeassistant
@@ -224,14 +234,26 @@ output:
     frequency: ${PWM_FREQUENCY}
     id: LED_CHANNEL_1
     zero_means_zero: true
+  - platform: ledc
+    pin: 26
+    frequency: ${PWM_FREQUENCY}
+    id: LED_CHANNEL_2
+    zero_means_zero: true
 
 light:
   - platform: monochromatic
     name: "${ESPHOME_NAME}-L1"
     default_transition_length: ${DEFAULT_ONOFF_DURATION}
-    gamma_correct: 2.8
+    gamma_correct: ${GAMMA_CORRECTION}
     id: led_1
     output: LED_CHANNEL_1
+    restore_mode: RESTORE_DEFAULT_OFF
+  - platform: monochromatic
+    name: "${ESPHOME_NAME}-L2"
+    default_transition_length: ${DEFAULT_ONOFF_DURATION}
+    gamma_correct: ${GAMMA_CORRECTION}
+    id: led_2
+    output: LED_CHANNEL_2
     restore_mode: RESTORE_DEFAULT_OFF
 
 # ========================================
@@ -256,6 +278,33 @@ switch:
 # Binary Sensors (Buttons)
 # ========================================
 binary_sensor:
+  - platform: gpio
+    pin:
+      pcf8574: pcf8574_hub
+      number: 0
+      mode:
+        input: true
+      inverted: true
+    name: "PCF8574 Button P0"
+    id: pcf8574_button_0
+    filters:
+      - delayed_on_off: ${BUTTON_FILTER_DURATION}
+
+    # Long press: Start dimming
+    on_press:
+      then:
+        - script.execute:
+            id: start_dimming
+            light_id: led_2
+            button_id: pcf8574_button_0
+
+    # Release: Stop dimming (long press) or toggle (short press)
+    on_release:
+      then:
+        - script.execute:
+            id: stop_dimming_or_toggle
+            light_id: led_2
+
   - platform: gpio
     pin: 36
     name: "Button 1"
