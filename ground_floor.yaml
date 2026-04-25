@@ -14,6 +14,12 @@ substitutions:
 # ========================================
 esphome:
   name: ${ESPHOME_NAME}
+  on_boot:
+    priority: -100  # Run after lights are restored
+    then:
+      - script.execute:
+          id: set_dim_direction_from_brightness
+          light_id: LED_1
 
 esp32:
   board: esp32dev
@@ -60,35 +66,41 @@ time:
 # ========================================
 # Global Variables
 # ========================================
-globals: # TODO these need to be instanced for each light
+globals:
   - id: dim_direction
-    type: bool
-    restore_value: true
-    initial_value: 'true'  # true = UP, false = DOWN
+    type: std::map<std::string, bool>
+    restore_value: false # restore_value isn't supported for map types
+    # Per-light dim direction: true = UP, false = DOWN
+    # Defaults to UP (true) for unknown keys via operator[]
   - id: is_dimming
-    type: bool
-    initial_value: 'false'
+    type: std::map<std::string, bool>
+    restore_value: false # restore_value isn't supported for map types
+    # Per-light dimming state: defaults to false via operator[]
 
 # ========================================
 # Scripts (Reusable Actions)
 # ========================================
 script:
   - id: log_debug_state
-    mode: single
+    mode: queued
     parameters:
       context: string
+      light_id: string
     then:
-      - logger.log:
-          format: "[DEBUG %s] is_dimming: %s; dim_direction: %s; is_on: %s; brightness: %f"
-          args:
-            - context.c_str()
-            - 'id(is_dimming) ? "YES" : "NO"'
-            - 'id(dim_direction) ? "UP" : "DOWN"'
-            - 'id(LED_1).current_values.is_on() ? "YES" : "NO"'
-            - 'id(LED_1).current_values.get_brightness()'
+      - lambda: |-
+          auto *light = App.get_light_by_key(fnv1_hash(light_id));
+          if (light) {
+            ESP_LOGD("debug", "[DEBUG %s] [%s] is_dimming: %s; dim_direction: %s; is_on: %s; brightness: %f",
+              context.c_str(),
+              light_id.c_str(),
+              id(is_dimming)[light_id] ? "YES" : "NO",
+              id(dim_direction)[light_id] ? "UP" : "DOWN",
+              light->current_values.is_on() ? "YES" : "NO",
+              light->current_values.get_brightness());
+          }
 
   - id: ensure_min_brightness
-    mode: single
+    mode: queued
     parameters:
       light_id: string
     then:
@@ -102,14 +114,14 @@ script:
           }
 
   - id: set_dim_direction_from_brightness
-    mode: single
+    mode: queued
     parameters:
       light_id: string
     then:
       - lambda: |-
           auto *light = App.get_light_by_key(fnv1_hash(light_id));
           if (light && light->current_values.is_on()) {
-            id(dim_direction) = light->current_values.get_brightness() > 0.5 ? false : true;
+            id(dim_direction)[light_id] = light->current_values.get_brightness() > 0.5 ? false : true;
           }
 
 # ========================================
@@ -167,6 +179,7 @@ binary_sensor:
         - script.execute:
             id: log_debug_state
             context: "CLICK"
+            light_id: LED_1
         - script.execute:
             id: ensure_min_brightness
             light_id: LED_1
@@ -183,30 +196,32 @@ binary_sensor:
               - binary_sensor.is_on: BUTTON_1
               - light.is_on: LED_1
             then:
-              - lambda: 'id(is_dimming) = true;'
+              - lambda: 'id(is_dimming)["LED_1"] = true;'
               - light.control:
                   id: LED_1
                   state: ON
-                  brightness: !lambda 'return id(dim_direction) ? 1.0 : ${MIN_BRIGHTNESS};'
+                  brightness: !lambda 'return id(dim_direction)["LED_1"] ? 1.0 : ${MIN_BRIGHTNESS};'
                   transition_length: ${DEFAULT_DIM_DURATION}
               - script.execute:
                   id: log_debug_state
                   context: "PRESS"
+                  light_id: LED_1
 
     # Release: Stop dimming and flip direction
     on_release:
       then:
         - if:
             condition:
-              lambda: 'return id(is_dimming);'
+              lambda: 'return id(is_dimming)["LED_1"];'
             then:
               - light.control:
                   id: LED_1
                   brightness: !lambda 'return id(LED_1).current_values.get_brightness();'
                   transition_length: ${IMMEDIATE_TRANSITION}
               - lambda: |-
-                  id(dim_direction) = !id(dim_direction);
-                  id(is_dimming) = false;
+                  id(dim_direction)["LED_1"] = !id(dim_direction)["LED_1"];
+                  id(is_dimming)["LED_1"] = false;
         - script.execute:
             id: log_debug_state
             context: "RELEASE"
+            light_id: LED_1
