@@ -1,7 +1,8 @@
 substitutions:
   ESPHOME_NAME: test-an-penta-deca
   MIN_BRIGHTNESS: 0.12          # Minimum brightness threshold (12%)
-  DEFAULT_DIM_DURATION: 3       # Duration of dimming transition (seconds, used in lambdas as *1000) - this needs to be an integer for lambda usage
+  DEFAULT_DIM_DURATION: 4       # Duration of full-range dimming transition (seconds, used in lambdas as *1000) - this needs to be an integer for lambda usage
+                                # Duration is then rescaled based on this and the actual range
   DEFAULT_ONOFF_DURATION: 400ms # Duration of on/off transition
   IMMEDIATE_TRANSITION: 0       # Duration of immediate transition - this needs to be an integer for lambda usage
   MAX_CLICK_DURATION: 400ms     # Maximum click duration
@@ -168,9 +169,14 @@ script:
           auto *light = id(light_registry)[light_id];
           if (btn && btn->state && light && light->remote_values.is_on()) {
             id(is_dimming)[light_id] = true;
+            float current = light->remote_values.get_brightness();
+            float target = id(dim_direction)[light_id] ? 1.0f : ${MIN_BRIGHTNESS}f;
+            float distance = fabs(target - current);
+            float full_range = 1.0f - ${MIN_BRIGHTNESS}f;
+            uint32_t transition_ms = (uint32_t)(${DEFAULT_DIM_DURATION} * 1000.0f * distance / full_range);
             auto call = light->turn_on();
-            call.set_brightness(id(dim_direction)[light_id] ? 1.0f : ${MIN_BRIGHTNESS}f);
-            call.set_transition_length(${DEFAULT_DIM_DURATION} * 1000);
+            call.set_brightness(target);
+            call.set_transition_length(transition_ms);
             call.perform();
           }
       - script.execute:
