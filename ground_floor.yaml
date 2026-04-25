@@ -20,6 +20,7 @@ esphome:
       - lambda: |-
           id(light_registry)["led_1"] = id(led_1);
           id(button_registry)["button_1"] = id(button_1);
+      - delay: 1s  # Wait for light state to fully restore
       - script.execute:
           id: set_dim_direction_from_brightness
           light_id: led_1
@@ -103,8 +104,8 @@ script:
               light_id.c_str(),
               id(is_dimming)[light_id] ? "YES" : "NO",
               id(dim_direction)[light_id] ? "UP" : "DOWN",
-              light->current_values.is_on() ? "YES" : "NO",
-              light->current_values.get_brightness());
+              light->remote_values.is_on() ? "YES" : "NO",
+              light->remote_values.get_brightness());
           }
 
   - id: ensure_min_brightness
@@ -114,8 +115,8 @@ script:
     then:
       - lambda: |-
           auto *light = id(light_registry)[light_id];
-          if (light && light->current_values.is_on() &&
-              light->current_values.get_brightness() < ${MIN_BRIGHTNESS}) {
+          if (light && light->remote_values.is_on() &&
+              light->remote_values.get_brightness() < ${MIN_BRIGHTNESS}) {
             auto call = light->turn_on();
             call.set_brightness(${MIN_BRIGHTNESS});
             call.perform();
@@ -128,8 +129,8 @@ script:
     then:
       - lambda: |-
           auto *light = id(light_registry)[light_id];
-          if (light && light->current_values.is_on()) {
-            id(dim_direction)[light_id] = light->current_values.get_brightness() <= 0.5;
+          if (light && light->remote_values.is_on()) {
+            id(dim_direction)[light_id] = light->remote_values.get_brightness() <= 0.5;
           } else {
             id(dim_direction)[light_id] = true;  // default to UP when off
           }
@@ -165,7 +166,7 @@ script:
       - lambda: |-
           auto *btn = id(button_registry)[button_id];
           auto *light = id(light_registry)[light_id];
-          if (btn && btn->state && light && light->current_values.is_on()) {
+          if (btn && btn->state && light && light->remote_values.is_on()) {
             id(is_dimming)[light_id] = true;
             auto call = light->turn_on();
             call.set_brightness(id(dim_direction)[light_id] ? 1.0f : ${MIN_BRIGHTNESS}f);
