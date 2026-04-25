@@ -6,7 +6,6 @@ substitutions:
   DEFAULT_ONOFF_DURATION: 400ms # Duration of on/off transition
   IMMEDIATE_TRANSITION: 0       # Duration of immediate transition - this needs to be an integer for lambda usage
   MAX_CLICK_DURATION: 400ms     # Maximum click duration
-  MIN_CLICK_DURATION: 50ms      # Minimum click duration
   BUTTON_FILTER_DURATION: 50ms  # Button filter duration
   PWM_FREQUENCY: 19531Hz
 
@@ -41,6 +40,8 @@ wifi:
   ap:
     ssid: "Test-An-Penta-Deca"
     password: "Cz6pyMLrL50A"
+
+captive_portal:
 
 web_server:
   port: 80
@@ -184,27 +185,35 @@ script:
           context: "PRESS"
           light_id: !lambda 'return light_id;'
 
-  - id: stop_dimming
+  - id: stop_dimming_or_toggle
     mode: restart
     parameters:
       light_id: string
     then:
-      - lambda: |-
-          if (id(is_dimming)[light_id]) {
-            auto *light = id(light_registry)[light_id];
-            if (light) {
-              auto call = light->turn_on();
-              call.set_brightness(light->current_values.get_brightness());
-              call.set_transition_length(${IMMEDIATE_TRANSITION});
-              call.perform();
-              id(dim_direction)[light_id] = !id(dim_direction)[light_id];
-              id(is_dimming)[light_id] = false;
-            }
-          }
-      - script.execute:
-          id: log_debug_state
-          context: "RELEASE"
-          light_id: !lambda 'return light_id;'
+      - if:
+          condition:
+            lambda: 'return id(is_dimming)[light_id];'
+          then:
+            # Long press release: freeze brightness and flip direction
+            - lambda: |-
+                auto *light = id(light_registry)[light_id];
+                if (light) {
+                  auto call = light->turn_on();
+                  call.set_brightness(light->current_values.get_brightness());
+                  call.set_transition_length(${IMMEDIATE_TRANSITION});
+                  call.perform();
+                  id(dim_direction)[light_id] = !id(dim_direction)[light_id];
+                  id(is_dimming)[light_id] = false;
+                }
+            - script.execute:
+                id: log_debug_state
+                context: " LONG PRESS RELEASE"
+                light_id: !lambda 'return light_id;'
+          else:
+            # Short press release: toggle light
+            - script.execute:
+                id: toggle_light
+                light_id: !lambda 'return light_id;'
 
 # ========================================
 # Outputs & Lights
@@ -255,15 +264,6 @@ binary_sensor:
       - invert:
       - delayed_on_off: ${BUTTON_FILTER_DURATION}
 
-    # Short press: Toggle light
-    on_click:
-      min_length: ${MIN_CLICK_DURATION}
-      max_length: ${MAX_CLICK_DURATION}
-      then:
-        - script.execute:
-            id: toggle_light
-            light_id: led_1
-
     # Long press: Start dimming
     on_press:
       then:
@@ -272,9 +272,9 @@ binary_sensor:
             light_id: led_1
             button_id: button_1
 
-    # Release: Stop dimming and flip direction
+    # Release: Stop dimming (long press) or toggle (short press)
     on_release:
       then:
         - script.execute:
-            id: stop_dimming
+            id: stop_dimming_or_toggle
             light_id: led_1
