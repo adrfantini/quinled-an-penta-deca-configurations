@@ -1,13 +1,19 @@
 substitutions:
-  esphome_name: test-an-penta-deca
-  min_brightness: "0.12"  # Minimum brightness threshold (12%)
-  dim_duration: "3s"      # Duration of dimming transition
+  ESPHOME_NAME: test-an-penta-deca
+  MIN_BRIGHTNESS: 0.12          # Minimum brightness threshold (12%)
+  DEFAULT_DIM_DURATION: 3s      # Duration of dimming transition
+  DEFAULT_ONOFF_DURATION: 400ms # Duration of on/off transition
+  IMMEDIATE_TRANSITION: 0s      # Duration of immediate transition
+  MAX_CLICK_DURATION: 400ms     # Maximum click duration
+  MIN_CLICK_DURATION: 50ms      # Minimum click duration
+  BUTTON_FILTER_DURATION: 50ms  # Button filter duration
+  PWM_FREQUENCY: 19531Hz
 
 # ========================================
 # Core Configuration
 # ========================================
 esphome:
-  name: ${esphome_name}
+  name: ${ESPHOME_NAME}
 
 esp32:
   board: esp32dev
@@ -54,7 +60,7 @@ time:
 # ========================================
 # Global Variables
 # ========================================
-globals:
+globals: # TODO these need to be instanced for each light
   - id: dim_direction
     type: bool
     restore_value: true
@@ -78,30 +84,33 @@ script:
             - context.c_str()
             - 'id(is_dimming) ? "YES" : "NO"'
             - 'id(dim_direction) ? "UP" : "DOWN"'
-            - 'id(LED1).current_values.is_on() ? "YES" : "NO"'
-            - 'id(LED1).current_values.get_brightness()'
+            - 'id(LED_1).current_values.is_on() ? "YES" : "NO"'
+            - 'id(LED_1).current_values.get_brightness()'
 
   - id: ensure_min_brightness
     mode: single
+    parameters:
+      light_id: string
     then:
-      - if:
-          condition:
-            - light.is_on: LED1
-            - lambda: 'return id(LED1).current_values.get_brightness() < ${min_brightness};'
-          then:
-            - light.control:
-                id: LED1
-                brightness: ${min_brightness}
+      - lambda: |-
+          auto *light = App.get_light_by_key(fnv1_hash(light_id));
+          if (light && light->current_values.is_on() &&
+              light->current_values.get_brightness() < ${MIN_BRIGHTNESS}) {
+            auto call = light->turn_on();
+            call.set_brightness(${MIN_BRIGHTNESS});
+            call.perform();
+          }
 
   - id: set_dim_direction_from_brightness
     mode: single
+    parameters:
+      light_id: string
     then:
-      - if:
-          condition:
-            - light.is_on: LED1
-          then:
-            - lambda: |-
-                id(dim_direction) = id(LED1).current_values.get_brightness() > 0.5 ? false : true;
+      - lambda: |-
+          auto *light = App.get_light_by_key(fnv1_hash(light_id));
+          if (light && light->current_values.is_on()) {
+            id(dim_direction) = light->current_values.get_brightness() > 0.5 ? false : true;
+          }
 
 # ========================================
 # Outputs & Lights
@@ -109,17 +118,17 @@ script:
 output:
   - platform: ledc
     pin: 27
-    frequency: 19531Hz
-    id: LED_channel_1
+    frequency: ${PWM_FREQUENCY}
+    id: LED_CHANNEL_1
     zero_means_zero: true
 
 light:
   - platform: monochromatic
-    name: "${esphome_name}-L1"
-    default_transition_length: 500ms
+    name: "${ESPHOME_NAME}-L1"
+    default_transition_length: ${DEFAULT_ONOFF_DURATION}
     gamma_correct: 2.8
-    id: LED1
-    output: LED_channel_1
+    id: LED_1
+    output: LED_CHANNEL_1
     restore_mode: RESTORE_DEFAULT_OFF
 
 # ========================================
@@ -127,56 +136,59 @@ light:
 # ========================================
 sensor:
   - platform: uptime
-    name: "${esphome_name}_Uptime Sensor"
+    name: "${ESPHOME_NAME}_Uptime Sensor"
   - platform: internal_temperature
-    name: "${esphome_name} Internal Temp"
+    name: "${ESPHOME_NAME} Internal Temp"
     unit_of_measurement: "°C"
 
 switch:
   - platform: restart
-    name: ${esphome_name}-restart
+    name: ${ESPHOME_NAME}-restart
     id: restart_switch
 
 # ========================================
 # Binary Sensors (Buttons)
 # ========================================
-
 binary_sensor:
   - platform: gpio
     pin: 36
     name: "Button 1"
-    id: button_1
+    id: BUTTON_1
     filters:
       - invert:
-      - delayed_on_off: 50ms
+      - delayed_on_off: ${BUTTON_FILTER_DURATION}
 
     # Short press: Toggle light
     on_click:
-      min_length: 50ms
-      max_length: 400ms
+      min_length: ${MIN_CLICK_DURATION}
+      max_length: ${MAX_CLICK_DURATION}
       then:
-        - light.toggle: LED1
+        - light.toggle: LED_1
         - script.execute:
             id: log_debug_state
             context: "CLICK"
-        - script.execute: ensure_min_brightness
-        - script.execute: set_dim_direction_from_brightness
+        - script.execute:
+            id: ensure_min_brightness
+            light_id: LED_1
+        - script.execute:
+            id: set_dim_direction_from_brightness
+            light_id: LED_1
 
     # Long press: Start dimming
     on_press:
       then:
-        - delay: 400ms
+        - delay: ${MAX_CLICK_DURATION}
         - if:
             condition:
-              - binary_sensor.is_on: button_1
-              - light.is_on: LED1
+              - binary_sensor.is_on: BUTTON_1
+              - light.is_on: LED_1
             then:
               - lambda: 'id(is_dimming) = true;'
               - light.control:
-                  id: LED1
+                  id: LED_1
                   state: ON
-                  brightness: !lambda 'return id(dim_direction) ? 1.0 : ${min_brightness};'
-                  transition_length: ${dim_duration}
+                  brightness: !lambda 'return id(dim_direction) ? 1.0 : ${MIN_BRIGHTNESS};'
+                  transition_length: ${DEFAULT_DIM_DURATION}
               - script.execute:
                   id: log_debug_state
                   context: "PRESS"
@@ -189,9 +201,9 @@ binary_sensor:
               lambda: 'return id(is_dimming);'
             then:
               - light.control:
-                  id: LED1
-                  brightness: !lambda 'return id(LED1).current_values.get_brightness();'
-                  transition_length: 0s
+                  id: LED_1
+                  brightness: !lambda 'return id(LED_1).current_values.get_brightness();'
+                  transition_length: ${IMMEDIATE_TRANSITION}
               - lambda: |-
                   id(dim_direction) = !id(dim_direction);
                   id(is_dimming) = false;
