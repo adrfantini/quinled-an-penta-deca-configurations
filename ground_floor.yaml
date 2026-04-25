@@ -170,6 +170,7 @@ script:
           id: set_dim_direction_from_brightness
           light_id: !lambda 'return light_id;'
 
+  # Long press: Start dimming
   - id: start_dimming
     mode: queued # this needs to be queued otherwise multi-button presses may mess things up
     parameters:
@@ -197,6 +198,7 @@ script:
           context: "PRESS"
           light_id: !lambda 'return light_id;'
 
+  # Release: Stop dimming (long press) or toggle (short press)
   - id: stop_dimming_or_toggle
     mode: parallel
     parameters:
@@ -280,6 +282,10 @@ switch:
 # Binary Sensors (Buttons)
 # ========================================
 binary_sensor:
+
+  # =========================
+  # LED 2 - EXTERNAL BUTTON 0
+  # =========================
   - platform: gpio
     pin:
       pcf8574: pcf8574_hub
@@ -292,7 +298,6 @@ binary_sensor:
     filters:
       - delayed_on_off: ${BUTTON_FILTER_DURATION}
 
-    # Long press: Start dimming
     on_press:
       then:
         - script.execute:
@@ -300,13 +305,15 @@ binary_sensor:
             light_id: led_2
             button_id: pcf8574_button_0
 
-    # Release: Stop dimming (long press) or toggle (short press)
     on_release:
       then:
         - script.execute:
             id: stop_dimming_or_toggle
             light_id: led_2
 
+  # =========================
+  # LED 1 - INTERNAL BUTTON 1
+  # =========================
   - platform: gpio
     pin: 36
     name: "Button 1"
@@ -315,7 +322,6 @@ binary_sensor:
       - invert:
       - delayed_on_off: ${BUTTON_FILTER_DURATION}
 
-    # Long press: Start dimming
     on_press:
       then:
         - script.execute:
@@ -323,7 +329,6 @@ binary_sensor:
             light_id: led_1
             button_id: button_1
 
-    # Release: Stop dimming (long press) or toggle (short press)
     on_release:
       then:
         - script.execute:
