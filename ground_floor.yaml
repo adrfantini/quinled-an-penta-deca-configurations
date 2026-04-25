@@ -1,9 +1,9 @@
 substitutions:
   ESPHOME_NAME: test-an-penta-deca
   MIN_BRIGHTNESS: 0.12          # Minimum brightness threshold (12%)
-  DEFAULT_DIM_DURATION: 3s      # Duration of dimming transition
+  DEFAULT_DIM_DURATION: 3       # Duration of dimming transition (seconds, used in lambdas as *1000) - this needs to be an integer for lambda usage
   DEFAULT_ONOFF_DURATION: 400ms # Duration of on/off transition
-  IMMEDIATE_TRANSITION: 0s      # Duration of immediate transition
+  IMMEDIATE_TRANSITION: 0       # Duration of immediate transition - this needs to be an integer for lambda usage
   MAX_CLICK_DURATION: 400ms     # Maximum click duration
   MIN_CLICK_DURATION: 50ms      # Minimum click duration
   BUTTON_FILTER_DURATION: 50ms  # Button filter duration
@@ -17,9 +17,12 @@ esphome:
   on_boot:
     priority: -100  # Run after lights are restored
     then:
+      - lambda: |-
+          id(light_registry)["led_1"] = id(led_1);
+          id(button_registry)["button_1"] = id(button_1);
       - script.execute:
           id: set_dim_direction_from_brightness
-          light_id: LED_1
+          light_id: led_1
 
 esp32:
   board: esp32dev
@@ -69,13 +72,18 @@ time:
 globals:
   - id: dim_direction
     type: std::map<std::string, bool>
-    restore_value: false # restore_value isn't supported for map types
+    restore_value: false
     # Per-light dim direction: true = UP, false = DOWN
-    # Defaults to UP (true) for unknown keys via operator[]
   - id: is_dimming
     type: std::map<std::string, bool>
-    restore_value: false # restore_value isn't supported for map types
+    restore_value: false
     # Per-light dimming state: defaults to false via operator[]
+  - id: light_registry
+    type: std::map<std::string, esphome::light::LightState *>
+    restore_value: false
+  - id: button_registry
+    type: std::map<std::string, esphome::binary_sensor::BinarySensor *>
+    restore_value: false
 
 # ========================================
 # Scripts (Reusable Actions)
@@ -88,7 +96,7 @@ script:
       light_id: string
     then:
       - lambda: |-
-          auto *light = App.get_light_by_key(fnv1_hash(light_id));
+          auto *light = id(light_registry)[light_id];
           if (light) {
             ESP_LOGD("debug", "[DEBUG %s] [%s] is_dimming: %s; dim_direction: %s; is_on: %s; brightness: %f",
               context.c_str(),
@@ -105,7 +113,7 @@ script:
       light_id: string
     then:
       - lambda: |-
-          auto *light = App.get_light_by_key(fnv1_hash(light_id));
+          auto *light = id(light_registry)[light_id];
           if (light && light->current_values.is_on() &&
               light->current_values.get_brightness() < ${MIN_BRIGHTNESS}) {
             auto call = light->turn_on();
@@ -119,10 +127,77 @@ script:
       light_id: string
     then:
       - lambda: |-
-          auto *light = App.get_light_by_key(fnv1_hash(light_id));
+          auto *light = id(light_registry)[light_id];
           if (light && light->current_values.is_on()) {
-            id(dim_direction)[light_id] = light->current_values.get_brightness() > 0.5 ? false : true;
+            id(dim_direction)[light_id] = light->current_values.get_brightness() <= 0.5;
+          } else {
+            id(dim_direction)[light_id] = true;  // default to UP when off
           }
+
+  - id: toggle_light
+    mode: restart
+    parameters:
+      light_id: string
+    then:
+      - lambda: |-
+          auto *light = id(light_registry)[light_id];
+          if (light) {
+            light->toggle().perform();
+          }
+      - script.execute:
+          id: log_debug_state
+          context: "CLICK"
+          light_id: !lambda 'return light_id;'
+      - script.execute:
+          id: ensure_min_brightness
+          light_id: !lambda 'return light_id;'
+      - script.execute:
+          id: set_dim_direction_from_brightness
+          light_id: !lambda 'return light_id;'
+
+  - id: start_dimming
+    mode: restart
+    parameters:
+      light_id: string
+      button_id: string
+    then:
+      - delay: ${MAX_CLICK_DURATION}
+      - lambda: |-
+          auto *btn = id(button_registry)[button_id];
+          auto *light = id(light_registry)[light_id];
+          if (btn && btn->state && light && light->current_values.is_on()) {
+            id(is_dimming)[light_id] = true;
+            auto call = light->turn_on();
+            call.set_brightness(id(dim_direction)[light_id] ? 1.0f : ${MIN_BRIGHTNESS}f);
+            call.set_transition_length(${DEFAULT_DIM_DURATION} * 1000);
+            call.perform();
+          }
+      - script.execute:
+          id: log_debug_state
+          context: "PRESS"
+          light_id: !lambda 'return light_id;'
+
+  - id: stop_dimming
+    mode: restart
+    parameters:
+      light_id: string
+    then:
+      - lambda: |-
+          if (id(is_dimming)[light_id]) {
+            auto *light = id(light_registry)[light_id];
+            if (light) {
+              auto call = light->turn_on();
+              call.set_brightness(light->current_values.get_brightness());
+              call.set_transition_length(${IMMEDIATE_TRANSITION});
+              call.perform();
+              id(dim_direction)[light_id] = !id(dim_direction)[light_id];
+              id(is_dimming)[light_id] = false;
+            }
+          }
+      - script.execute:
+          id: log_debug_state
+          context: "RELEASE"
+          light_id: !lambda 'return light_id;'
 
 # ========================================
 # Outputs & Lights
@@ -139,7 +214,7 @@ light:
     name: "${ESPHOME_NAME}-L1"
     default_transition_length: ${DEFAULT_ONOFF_DURATION}
     gamma_correct: 2.8
-    id: LED_1
+    id: led_1
     output: LED_CHANNEL_1
     restore_mode: RESTORE_DEFAULT_OFF
 
@@ -152,6 +227,9 @@ sensor:
   - platform: internal_temperature
     name: "${ESPHOME_NAME} Internal Temp"
     unit_of_measurement: "°C"
+  - platform: wifi_signal
+    name: "${ESPHOME_NAME} WiFi Signal"
+    update_interval: 60s
 
 switch:
   - platform: restart
@@ -165,7 +243,7 @@ binary_sensor:
   - platform: gpio
     pin: 36
     name: "Button 1"
-    id: BUTTON_1
+    id: button_1
     filters:
       - invert:
       - delayed_on_off: ${BUTTON_FILTER_DURATION}
@@ -175,53 +253,21 @@ binary_sensor:
       min_length: ${MIN_CLICK_DURATION}
       max_length: ${MAX_CLICK_DURATION}
       then:
-        - light.toggle: LED_1
         - script.execute:
-            id: log_debug_state
-            context: "CLICK"
-            light_id: LED_1
-        - script.execute:
-            id: ensure_min_brightness
-            light_id: LED_1
-        - script.execute:
-            id: set_dim_direction_from_brightness
-            light_id: LED_1
+            id: toggle_light
+            light_id: led_1
 
     # Long press: Start dimming
     on_press:
       then:
-        - delay: ${MAX_CLICK_DURATION}
-        - if:
-            condition:
-              - binary_sensor.is_on: BUTTON_1
-              - light.is_on: LED_1
-            then:
-              - lambda: 'id(is_dimming)["LED_1"] = true;'
-              - light.control:
-                  id: LED_1
-                  state: ON
-                  brightness: !lambda 'return id(dim_direction)["LED_1"] ? 1.0 : ${MIN_BRIGHTNESS};'
-                  transition_length: ${DEFAULT_DIM_DURATION}
-              - script.execute:
-                  id: log_debug_state
-                  context: "PRESS"
-                  light_id: LED_1
+        - script.execute:
+            id: start_dimming
+            light_id: led_1
+            button_id: button_1
 
     # Release: Stop dimming and flip direction
     on_release:
       then:
-        - if:
-            condition:
-              lambda: 'return id(is_dimming)["LED_1"];'
-            then:
-              - light.control:
-                  id: LED_1
-                  brightness: !lambda 'return id(LED_1).current_values.get_brightness();'
-                  transition_length: ${IMMEDIATE_TRANSITION}
-              - lambda: |-
-                  id(dim_direction)["LED_1"] = !id(dim_direction)["LED_1"];
-                  id(is_dimming)["LED_1"] = false;
         - script.execute:
-            id: log_debug_state
-            context: "RELEASE"
-            light_id: LED_1
+            id: stop_dimming
+            light_id: led_1
