@@ -1,5 +1,40 @@
+# Configuration for the Quinled an-penta-deca for the ground floor.
+# Documentation:
+# https://quinled.info/quinled-an-penta-deca-pinout-guide/
+# https://esphome.io/components/light/
+#
+# Behaviour:
+#   Each button controls one monochromatic LED channel.
+#
+#   Short press (< MAX_CLICK_DURATION):
+#     - Toggles the light ON/OFF.
+#     - When turning ON, brightness is restored to the previous value.
+#     - If restored brightness is below the minimum threshold (MIN_BRIGHTNESS),
+#       it is clamped up to that minimum.
+#     - After toggling, the dim direction is set based on brightness:
+#       <= 50% → next dim will go UP, > 50% → next dim will go DOWN.
+#
+#   Long press (>= MAX_CLICK_DURATION, while light is ON):
+#     - Starts a smooth brightness transition toward the target
+#       (100% if direction is UP, minimum if DOWN).
+#     - Dimming speed is constant: the transition duration is proportional
+#       to the brightness distance, so a full sweep always takes
+#       DEFAULT_DIM_DURATION seconds regardless of starting point.
+#     - On release, brightness freezes at the current level and the
+#       dim direction flips for the next long press.
+#
+#   Long press while light is OFF:
+#     - Light turns on when button is released
+#
+#   Adding a new light + button:
+#     1. Add an output, light, and binary_sensor entry.
+#     2. Register them in the on_boot lambda (light_registry / button_registry).
+#     3. Add a set_dim_direction_from_brightness call in on_boot.
+#     4. Wire the button's on_press → start_dimming, on_release → stop_dimming_or_toggle.
+
+
 substitutions:
-  ESPHOME_NAME: test-an-penta-deca
+  ESPHOME_NAME: an-penta-deca-ground-floor
   MIN_BRIGHTNESS: 0.12          # Minimum brightness threshold (12%)
   DEFAULT_DIM_DURATION: 4       # Duration of full-range dimming transition (seconds, used in lambdas as *1000) - this needs to be an integer for lambda usage
                                 # Duration is then rescaled based on this and the actual range
@@ -172,7 +207,7 @@ script:
 
   # Long press: Start dimming
   - id: start_dimming
-    mode: queued # this needs to be queued otherwise multi-button presses may mess things up
+    mode: parallel # If you are having problems with long press detection, try changing this to queued
     parameters:
       light_id: string
       button_id: string
@@ -181,7 +216,7 @@ script:
       - lambda: |-
           auto *btn = id(button_registry)[button_id];
           auto *light = id(light_registry)[light_id];
-          if (btn && btn->state && light && light->remote_values.is_on()) {
+          if (btn && btn->state && light && light->remote_values.is_on() && !id(is_dimming)[light_id]) {
             id(is_dimming)[light_id] = true;
             float current = light->remote_values.get_brightness();
             float target = id(dim_direction)[light_id] ? 1.0f : ${MIN_BRIGHTNESS}f;
