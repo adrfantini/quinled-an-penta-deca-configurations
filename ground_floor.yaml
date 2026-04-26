@@ -44,6 +44,7 @@ substitutions:
   BUTTON_FILTER_DURATION: 50ms  # Button filter duration
   PWM_FREQUENCY: 19531Hz
   GAMMA_CORRECTION: 2.8
+  LOG_LEVEL: DEBUG              # NONE, ERROR, WARN, INFO, DEBUG, VERBOSE, VERY_VERBOSE
 
 # ========================================
 # Core Configuration
@@ -102,6 +103,7 @@ ota:
 # Peripherals
 # ========================================
 logger:
+  level: ${LOG_LEVEL}
 
 i2c:
   sda: 15
