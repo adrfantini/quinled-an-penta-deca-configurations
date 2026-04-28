@@ -28,8 +28,8 @@
 #
 #   Max Brightness (Night Mode):
 #     - A global max brightness slider is exposed to Home Assistant.
-#     - Uses output.set_max_power to cap PWM at hardware level — cannot be
-#       bypassed by HA or any other brightness command.
+#     - Software clamp via on_state: any brightness change from any source
+#       (buttons, HA, automations) is clamped to the max.
 #     - Set via HA automation (e.g., 40% after 22:00, 100% at sunrise).
 #     - Value survives reboots.
 #
@@ -69,12 +69,8 @@ esphome:
           id(button_registry)["button_1"] = id(button_1);
           id(button_registry)["pcf8574_button_0"] = id(pcf8574_button_0);
       - delay: 1s  # Wait for light state to fully restore
-      # Apply restored max_brightness to outputs
       - lambda: |-
-          float cap = id(max_brightness).state / 100.0f;
-          id(LED_CHANNEL_1).set_max_power(cap);
-          id(LED_CHANNEL_2).set_max_power(cap);
-          ESP_LOGI("max_brightness", "Boot: max_brightness restored to %.0f%% (max_power=%.2f)", id(max_brightness).state, cap);
+          ESP_LOGI("max_brightness", "Boot: max_brightness restored to %.0f%%", id(max_brightness).state);
       - script.execute:
           id: set_dim_direction_from_brightness
           light_id: led_1
@@ -131,6 +127,12 @@ time:
   - platform: homeassistant
     id: homeassistant_time
 
+# Periodically enforce brightness bounds on all lights
+interval:
+  - interval: 200ms
+    then:
+      - script.execute: clamp_brightness
+
 # ========================================
 # Global Variables
 # ========================================
@@ -172,18 +174,29 @@ script:
               light->remote_values.get_brightness());
           }
 
-  - id: ensure_min_brightness
-    mode: parallel
-    parameters:
-      light_id: string
+  - id: clamp_brightness
+    mode: single
     then:
       - lambda: |-
-          auto *light = id(light_registry)[light_id];
-          if (light && light->remote_values.is_on() &&
-              light->remote_values.get_brightness() < (${MIN_BRIGHTNESS} / 100.0f)) {
-            auto call = light->turn_on();
-            call.set_brightness(${MIN_BRIGHTNESS} / 100.0f);
-            call.perform();
+          float min_br = ${MIN_BRIGHTNESS} / 100.0f;
+          float max_br = id(max_brightness).state / 100.0f;
+          for (auto &pair : id(light_registry)) {
+            auto *light = pair.second;
+            if (!light || !light->remote_values.is_on()) continue;
+            float br = light->remote_values.get_brightness();
+            if (br < min_br) {
+              ESP_LOGD("clamp", "Clamping %s UP from %.0f%% to %.0f%%", pair.first.c_str(), br * 100, min_br * 100);
+              auto call = light->turn_on();
+              call.set_brightness(min_br);
+              call.set_transition_length(${IMMEDIATE_TRANSITION});
+              call.perform();
+            } else if (br > max_br) {
+              ESP_LOGD("clamp", "Clamping %s DOWN from %.0f%% to %.0f%%", pair.first.c_str(), br * 100, max_br * 100);
+              auto call = light->turn_on();
+              call.set_brightness(max_br);
+              call.set_transition_length(${IMMEDIATE_TRANSITION});
+              call.perform();
+            }
           }
 
   - id: set_dim_direction_from_brightness
@@ -212,9 +225,6 @@ script:
       - script.execute:
           id: log_debug_state
           context: "CLICK"
-          light_id: !lambda 'return light_id;'
-      - script.execute:
-          id: ensure_min_brightness
           light_id: !lambda 'return light_id;'
       - script.execute:
           id: set_dim_direction_from_brightness
@@ -347,24 +357,7 @@ number:
     set_action:
       - lambda: |-
           ESP_LOGI("max_brightness", "Max brightness changed to %.0f%%", x);
-      # Set max_power on all outputs — caps PWM duty at hardware level
-      - output.set_max_power:
-          id: LED_CHANNEL_1
-          max_power: !lambda 'return x / 100.0f;'
-      - output.set_max_power:
-          id: LED_CHANNEL_2
-          max_power: !lambda 'return x / 100.0f;'
-      # Re-apply current brightness so the new max_power takes effect immediately
-      - lambda: |-
-          for (auto &pair : id(light_registry)) {
-            auto *light = pair.second;
-            if (light && light->remote_values.is_on()) {
-              auto call = light->turn_on();
-              call.set_brightness(light->remote_values.get_brightness());
-              call.set_transition_length(${IMMEDIATE_TRANSITION});
-              call.perform();
-            }
-          }
+      - script.execute: clamp_brightness
 
 # ========================================
 # Binary Sensors (Buttons)
