@@ -66,7 +66,9 @@ esphome:
       - lambda: |-
           id(light_registry)["led_1"] = id(led_1);
           id(light_registry)["led_2"] = id(led_2);
+          id(light_registry)["led_3"] = id(led_3);
           id(button_registry)["button_1"] = id(button_1);
+          id(button_registry)["button_2"] = id(button_2);
           id(button_registry)["pcf8574_button_0"] = id(pcf8574_button_0);
       - delay: 1s  # Wait for light state to fully restore
       - lambda: |-
@@ -77,6 +79,9 @@ esphome:
       - script.execute:
           id: set_dim_direction_from_brightness
           light_id: led_2
+      - script.execute:
+          id: set_dim_direction_from_brightness
+          light_id: led_3
 
 esp32:
   board: esp32dev
@@ -127,12 +132,6 @@ time:
   - platform: homeassistant
     id: homeassistant_time
 
-# Periodically enforce brightness bounds on all lights
-interval:
-  - interval: 200ms
-    then:
-      - script.execute: clamp_brightness
-
 # ========================================
 # Global Variables
 # ========================================
@@ -175,28 +174,28 @@ script:
           }
 
   - id: clamp_brightness
-    mode: single
+    mode: parallel
+    parameters:
+      light_id: string
     then:
       - lambda: |-
+          auto *light = id(light_registry)[light_id];
+          if (!light || !light->remote_values.is_on()) return;
+          float br = light->remote_values.get_brightness();
           float min_br = ${MIN_BRIGHTNESS} / 100.0f;
           float max_br = id(max_brightness).state / 100.0f;
-          for (auto &pair : id(light_registry)) {
-            auto *light = pair.second;
-            if (!light || !light->remote_values.is_on()) continue;
-            float br = light->remote_values.get_brightness();
-            if (br < min_br) {
-              ESP_LOGD("clamp", "Clamping %s UP from %.0f%% to %.0f%%", pair.first.c_str(), br * 100, min_br * 100);
-              auto call = light->turn_on();
-              call.set_brightness(min_br);
-              call.set_transition_length(${IMMEDIATE_TRANSITION});
-              call.perform();
-            } else if (br > max_br) {
-              ESP_LOGD("clamp", "Clamping %s DOWN from %.0f%% to %.0f%%", pair.first.c_str(), br * 100, max_br * 100);
-              auto call = light->turn_on();
-              call.set_brightness(max_br);
-              call.set_transition_length(${IMMEDIATE_TRANSITION});
-              call.perform();
-            }
+          if (br < min_br) {
+            ESP_LOGD("clamp", "Clamping %s UP from %.0f%% to %.0f%%", light_id.c_str(), br * 100, min_br * 100);
+            auto call = light->turn_on();
+            call.set_brightness(min_br);
+            call.set_transition_length(${IMMEDIATE_TRANSITION});
+            call.perform();
+          } else if (br > max_br) {
+            ESP_LOGD("clamp", "Clamping %s DOWN from %.0f%% to %.0f%%", light_id.c_str(), br * 100, max_br * 100);
+            auto call = light->turn_on();
+            call.set_brightness(max_br);
+            call.set_transition_length(${IMMEDIATE_TRANSITION});
+            call.perform();
           }
 
   - id: set_dim_direction_from_brightness
@@ -304,6 +303,16 @@ output:
     frequency: ${PWM_FREQUENCY}
     id: LED_CHANNEL_2
     zero_means_zero: true
+  - platform: ledc
+    pin: 21
+    frequency: ${PWM_FREQUENCY}
+    id: LED_CHANNEL_6_CW
+    zero_means_zero: true
+  - platform: ledc
+    pin: 19
+    frequency: ${PWM_FREQUENCY}
+    id: LED_CHANNEL_7_WW
+    zero_means_zero: true
 
 light:
   - platform: monochromatic
@@ -313,6 +322,11 @@ light:
     id: led_1
     output: LED_CHANNEL_1
     restore_mode: RESTORE_DEFAULT_OFF
+    on_state:
+      then:
+        - script.execute:
+            id: clamp_brightness
+            light_id: led_1
   - platform: monochromatic
     name: "${ESPHOME_NAME}-L2"
     default_transition_length: ${DEFAULT_ONOFF_DURATION}
@@ -320,6 +334,30 @@ light:
     id: led_2
     output: LED_CHANNEL_2
     restore_mode: RESTORE_DEFAULT_OFF
+    on_state:
+      then:
+        - script.execute:
+            id: clamp_brightness
+            light_id: led_2
+
+  # =========================
+  # LED 3 - CCT (L6 CW + L7 WW)
+  # =========================
+  - platform: cwww
+    name: "${ESPHOME_NAME}-L3"
+    default_transition_length: ${DEFAULT_ONOFF_DURATION}
+    gamma_correct: ${GAMMA_CORRECTION}
+    id: led_3
+    cold_white: LED_CHANNEL_6_CW
+    warm_white: LED_CHANNEL_7_WW
+    cold_white_color_temperature: 6500 K
+    warm_white_color_temperature: 2000 K
+    restore_mode: RESTORE_DEFAULT_OFF
+    on_state:
+      then:
+        - script.execute:
+            id: clamp_brightness
+            light_id: led_3
 
 # ========================================
 # Sensors
@@ -357,7 +395,18 @@ number:
     set_action:
       - lambda: |-
           ESP_LOGI("max_brightness", "Max brightness changed to %.0f%%", x);
-      - script.execute: clamp_brightness
+          float cap = x / 100.0f;
+          // Clamp any currently-on lights that exceed the new cap
+          for (auto &pair : id(light_registry)) {
+            auto *light = pair.second;
+            if (light && light->remote_values.is_on() &&
+                light->remote_values.get_brightness() > cap) {
+              auto call = light->turn_on();
+              call.set_brightness(cap);
+              call.set_transition_length(${IMMEDIATE_TRANSITION});
+              call.perform();
+            }
+          }
 
 # ========================================
 # Binary Sensors (Buttons)
@@ -415,3 +464,27 @@ binary_sensor:
         - script.execute:
             id: stop_dimming_or_toggle
             light_id: led_1
+
+  # =========================
+  # LED 3 - INTERNAL BUTTON 2
+  # =========================
+  - platform: gpio
+    pin: 39
+    name: "Button 2"
+    id: button_2
+    filters:
+      - invert:
+      - delayed_on_off: ${BUTTON_FILTER_DURATION}
+
+    on_press:
+      then:
+        - script.execute:
+            id: start_dimming
+            light_id: led_3
+            button_id: button_2
+
+    on_release:
+      then:
+        - script.execute:
+            id: stop_dimming_or_toggle
+            light_id: led_3
