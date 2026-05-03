@@ -69,6 +69,7 @@ esphome:
           id(light_registry)["led_3"] = id(led_3);
           id(button_registry)["button_1"] = id(button_1);
           id(button_registry)["button_2"] = id(button_2);
+          id(button_registry)["button_3"] = id(button_3);
           id(button_registry)["pcf8574_button_0"] = id(pcf8574_button_0);
       - delay: 1s  # Wait for light state to fully restore
       - lambda: |-
@@ -150,6 +151,15 @@ globals:
   - id: button_registry
     type: std::map<std::string, esphome::binary_sensor::BinarySensor *>
     restore_value: false
+  - id: ct_direction
+    type: bool
+    restore_value: false
+    initial_value: 'true'
+    # Color temp direction: true = WARM, false = COOL
+  - id: is_ct_dimming
+    type: bool
+    restore_value: false
+    initial_value: 'false'
 
 # ========================================
 # Scripts (Reusable Actions)
@@ -283,6 +293,64 @@ script:
                 id: log_debug_state
                 context: " LONG PRESS RELEASE"
                 light_id: !lambda 'return light_id;'
+          else:
+            # Short press release: toggle light
+            - script.execute:
+                id: toggle_light
+                light_id: !lambda 'return light_id;'
+
+  # Long press: Start color temperature transition
+  - id: start_ct_dimming
+    mode: parallel
+    parameters:
+      light_id: string
+      button_id: string
+    then:
+      - delay: ${MAX_CLICK_DURATION}
+      - lambda: |-
+          auto *btn = id(button_registry)[button_id];
+          auto *light = id(light_registry)[light_id];
+          if (btn && btn->state && light && light->remote_values.is_on() && !id(is_ct_dimming)) {
+            id(is_ct_dimming) = true;
+            // Color temp in mireds: warm=500 (2000K), cold=154 (6500K)
+            float warm_mireds = 1000000.0f / 2000.0f;
+            float cold_mireds = 1000000.0f / 6500.0f;
+            float target = id(ct_direction) ? warm_mireds : cold_mireds;
+            float current = light->remote_values.get_color_temperature();
+            float distance = fabs(target - current);
+            float full_range = warm_mireds - cold_mireds;
+            uint32_t transition_ms = (uint32_t)(${DEFAULT_DIM_DURATION} * 1000.0f * distance / full_range);
+            auto call = light->turn_on();
+            call.set_color_temperature(target);
+            call.set_transition_length(transition_ms);
+            call.perform();
+            ESP_LOGD("ct", "CT dimming: current=%.0f target=%.0f duration=%ums", current, target, transition_ms);
+          }
+
+  # Release: Stop CT dimming (long press) or toggle (short press)
+  - id: stop_ct_dimming_or_toggle
+    mode: parallel
+    parameters:
+      light_id: string
+    then:
+      - if:
+          condition:
+            lambda: 'return id(is_ct_dimming);'
+          then:
+            # Long press release: freeze color temp and flip direction
+            - lambda: |-
+                auto *light = id(light_registry)[light_id];
+                if (light) {
+                  auto call = light->turn_on();
+                  call.set_color_temperature(light->current_values.get_color_temperature());
+                  call.set_transition_length(${IMMEDIATE_TRANSITION});
+                  call.perform();
+                  id(ct_direction) = !id(ct_direction);
+                  id(is_ct_dimming) = false;
+                  ESP_LOGD("ct", "CT frozen at %.0f mireds, next direction: %s",
+                    light->current_values.get_color_temperature(),
+                    id(ct_direction) ? "WARM" : "COOL");
+                }
           else:
             # Short press release: toggle light
             - script.execute:
@@ -487,4 +555,28 @@ binary_sensor:
       then:
         - script.execute:
             id: stop_dimming_or_toggle
+            light_id: led_3
+
+  # =========================
+  # LED 3 CT - INTERNAL BUTTON 3
+  # =========================
+  - platform: gpio
+    pin: 34
+    name: "Button 3"
+    id: button_3
+    filters:
+      - invert:
+      - delayed_on_off: ${BUTTON_FILTER_DURATION}
+
+    on_press:
+      then:
+        - script.execute:
+            id: start_ct_dimming
+            light_id: led_3
+            button_id: button_3
+
+    on_release:
+      then:
+        - script.execute:
+            id: stop_ct_dimming_or_toggle
             light_id: led_3
