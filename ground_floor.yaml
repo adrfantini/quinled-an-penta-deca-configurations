@@ -52,6 +52,8 @@ substitutions:
   PWM_FREQUENCY: 19531Hz
   GAMMA_CORRECTION: 2.8
   LOG_LEVEL: DEBUG              # NONE, ERROR, WARN, INFO, DEBUG, VERBOSE, VERY_VERBOSE
+  WW_COLOR_TEMPERATURE: 2700 K
+  CW_COLOR_TEMPERATURE: 5500 K
 
 # ========================================
 # Core Configuration
@@ -64,25 +66,39 @@ esphome:
       # NOTE: When adding a new light or button, register it here and
       #       add a set_dim_direction_from_brightness call below.
       - lambda: |-
-          id(light_registry)["led_1"] = id(led_1);
-          id(light_registry)["led_2"] = id(led_2);
-          id(light_registry)["led_3"] = id(led_3);
+          id(light_registry)["led_corridoio"] = id(led_corridoio);
+          id(light_registry)["led_cucina"] = id(led_cucina);
+          id(light_registry)["led_salotto"] = id(led_salotto);
+          id(light_registry)["led_studio"] = id(led_studio);
+          id(light_registry)["led_antibagno"] = id(led_antibagno);
+          id(light_registry)["led_bagno"] = id(led_bagno);
           id(button_registry)["button_1"] = id(button_1);
           id(button_registry)["button_2"] = id(button_2);
           id(button_registry)["button_3"] = id(button_3);
           id(button_registry)["pcf8574_button_0"] = id(pcf8574_button_0);
+          id(button_registry)["pcf8574_button_1"] = id(pcf8574_button_1);
+          id(button_registry)["pcf8574_button_2"] = id(pcf8574_button_2);
       - delay: 1s  # Wait for light state to fully restore
       - lambda: |-
           ESP_LOGI("max_brightness", "Boot: max_brightness restored to %.0f%%", id(max_brightness).state);
       - script.execute:
           id: set_dim_direction_from_brightness
-          light_id: led_1
+          light_id: led_corridoio
       - script.execute:
           id: set_dim_direction_from_brightness
-          light_id: led_2
+          light_id: led_cucina
       - script.execute:
           id: set_dim_direction_from_brightness
-          light_id: led_3
+          light_id: led_salotto
+      - script.execute:
+          id: set_dim_direction_from_brightness
+          light_id: led_studio
+      - script.execute:
+          id: set_dim_direction_from_brightness
+          light_id: led_antibagno
+      - script.execute:
+          id: set_dim_direction_from_brightness
+          light_id: led_bagno
 
 esp32:
   board: esp32dev
@@ -362,70 +378,168 @@ script:
 # ========================================
 output:
   - platform: ledc
+    id: LED_CHANNEL_1
     pin: 27
     frequency: ${PWM_FREQUENCY}
-    id: LED_CHANNEL_1
     zero_means_zero: true
   - platform: ledc
+    id: LED_CHANNEL_2
     pin: 26
     frequency: ${PWM_FREQUENCY}
-    id: LED_CHANNEL_2
     zero_means_zero: true
   - platform: ledc
+    id: LED_CHANNEL_3
+    pin: 25
+    frequency: ${PWM_FREQUENCY}
+    zero_means_zero: true
+  - platform: ledc
+    id: LED_CHANNEL_4
+    pin: 23
+    frequency: ${PWM_FREQUENCY}
+    zero_means_zero: true
+  - platform: ledc
+    id: LED_CHANNEL_6
     pin: 21
     frequency: ${PWM_FREQUENCY}
-    id: LED_CHANNEL_6_CW
     zero_means_zero: true
   - platform: ledc
+    id: LED_CHANNEL_7
     pin: 19
     frequency: ${PWM_FREQUENCY}
-    id: LED_CHANNEL_7_WW
+    zero_means_zero: true
+  - platform: ledc
+    id: LED_CHANNEL_8
+    pin: 18
+    frequency: ${PWM_FREQUENCY}
+    zero_means_zero: true
+  - platform: ledc
+    id: LED_CHANNEL_9
+    pin: 17
+    frequency: ${PWM_FREQUENCY}
+    zero_means_zero: true
+  - platform: ledc
+    id: LED_CHANNEL_11
+    pin: 13
+    frequency: ${PWM_FREQUENCY}
+    zero_means_zero: true
+  - platform: ledc
+    id: LED_CHANNEL_12
+    pin: 12
+    frequency: ${PWM_FREQUENCY}
+    zero_means_zero: true
+  - platform: ledc
+    id: LED_CHANNEL_13
+    pin: 5
+    frequency: ${PWM_FREQUENCY}
+    zero_means_zero: true
+  - platform: ledc
+    id: LED_CHANNEL_14
+    pin: 4
+    frequency: ${PWM_FREQUENCY}
     zero_means_zero: true
 
 light:
-  - platform: monochromatic
-    name: "${ESPHOME_NAME}-L1"
-    default_transition_length: ${DEFAULT_ONOFF_DURATION}
-    gamma_correct: ${GAMMA_CORRECTION}
-    id: led_1
-    output: LED_CHANNEL_1
-    restore_mode: RESTORE_DEFAULT_OFF
-    on_state:
-      then:
-        - script.execute:
-            id: clamp_brightness
-            light_id: led_1
-  - platform: monochromatic
-    name: "${ESPHOME_NAME}-L2"
-    default_transition_length: ${DEFAULT_ONOFF_DURATION}
-    gamma_correct: ${GAMMA_CORRECTION}
-    id: led_2
-    output: LED_CHANNEL_2
-    restore_mode: RESTORE_DEFAULT_OFF
-    on_state:
-      then:
-        - script.execute:
-            id: clamp_brightness
-            light_id: led_2
-
-  # =========================
-  # LED 3 - CCT (L6 CW + L7 WW)
-  # =========================
+  # LED_1 + LED_2 on GPIO27 + GPIO26 -> CCT light
   - platform: cwww
-    name: "${ESPHOME_NAME}-L3"
+    name: "${ESPHOME_NAME}-LED1_CORRIDOIO"
     default_transition_length: ${DEFAULT_ONOFF_DURATION}
     gamma_correct: ${GAMMA_CORRECTION}
-    id: led_3
-    cold_white: LED_CHANNEL_6_CW
-    warm_white: LED_CHANNEL_7_WW
-    cold_white_color_temperature: 6500 K
-    warm_white_color_temperature: 2000 K
+    id: led_corridoio
+    cold_white: LED_CHANNEL_1
+    warm_white: LED_CHANNEL_2
+    cold_white_color_temperature: ${CW_COLOR_TEMPERATURE}
+    warm_white_color_temperature: ${WW_COLOR_TEMPERATURE}
     restore_mode: RESTORE_DEFAULT_OFF
     on_state:
       then:
         - script.execute:
             id: clamp_brightness
-            light_id: led_3
+            light_id: led_corridoio
+
+  # LED_3 + LED_4 on GPIO25 + GPIO23 -> CCT light
+  - platform: cwww
+    name: "${ESPHOME_NAME}-LED2_CUCINA"
+    default_transition_length: ${DEFAULT_ONOFF_DURATION}
+    gamma_correct: ${GAMMA_CORRECTION}
+    id: led_cucina
+    cold_white: LED_CHANNEL_3
+    warm_white: LED_CHANNEL_4
+    cold_white_color_temperature: ${CW_COLOR_TEMPERATURE}
+    warm_white_color_temperature: ${WW_COLOR_TEMPERATURE}
+    restore_mode: RESTORE_DEFAULT_OFF
+    on_state:
+      then:
+        - script.execute:
+            id: clamp_brightness
+            light_id: led_cucina
+
+  # LED_6 + LED_7 on GPIO21 + GPIO19 -> CCT light
+  - platform: cwww
+    name: "${ESPHOME_NAME}-LED4_SALOTTO"
+    default_transition_length: ${DEFAULT_ONOFF_DURATION}
+    gamma_correct: ${GAMMA_CORRECTION}
+    id: led_salotto
+    cold_white: LED_CHANNEL_6
+    warm_white: LED_CHANNEL_7
+    cold_white_color_temperature: ${CW_COLOR_TEMPERATURE}
+    warm_white_color_temperature: ${WW_COLOR_TEMPERATURE}
+    restore_mode: RESTORE_DEFAULT_OFF
+    on_state:
+      then:
+        - script.execute:
+            id: clamp_brightness
+            light_id: led_salotto
+
+  # LED_8 + LED_9 on GPIO18 + GPIO17 -> CCT light
+  - platform: cwww
+    name: "${ESPHOME_NAME}-LED5_STUDIO"
+    default_transition_length: ${DEFAULT_ONOFF_DURATION}
+    gamma_correct: ${GAMMA_CORRECTION}
+    id: led_studio
+    cold_white: LED_CHANNEL_8
+    warm_white: LED_CHANNEL_9
+    cold_white_color_temperature: ${CW_COLOR_TEMPERATURE}
+    warm_white_color_temperature: ${WW_COLOR_TEMPERATURE}
+    restore_mode: RESTORE_DEFAULT_OFF
+    on_state:
+      then:
+        - script.execute:
+            id: clamp_brightness
+            light_id: led_studio
+
+  # LED_11 + LED_12 on GPIO13 + GPIO12 -> CCT light
+  - platform: cwww
+    name: "${ESPHOME_NAME}-LED6_ANTIBAGNO"
+    default_transition_length: ${DEFAULT_ONOFF_DURATION}
+    gamma_correct: ${GAMMA_CORRECTION}
+    id: led_antibagno
+    cold_white: LED_CHANNEL_11
+    warm_white: LED_CHANNEL_12
+    cold_white_color_temperature: ${CW_COLOR_TEMPERATURE}
+    warm_white_color_temperature: ${WW_COLOR_TEMPERATURE}
+    restore_mode: RESTORE_DEFAULT_OFF
+    on_state:
+      then:
+        - script.execute:
+            id: clamp_brightness
+            light_id: led_antibagno
+
+  # LED_13 + LED_14 on GPIO5 + GPIO4 -> CCT light
+  - platform: cwww
+    name: "${ESPHOME_NAME}-LED7_BAGNO"
+    default_transition_length: ${DEFAULT_ONOFF_DURATION}
+    gamma_correct: ${GAMMA_CORRECTION}
+    id: led_bagno
+    cold_white: LED_CHANNEL_13
+    warm_white: LED_CHANNEL_14
+    cold_white_color_temperature: ${CW_COLOR_TEMPERATURE}
+    warm_white_color_temperature: ${WW_COLOR_TEMPERATURE}
+    restore_mode: RESTORE_DEFAULT_OFF
+    on_state:
+      then:
+        - script.execute:
+            id: clamp_brightness
+            light_id: led_bagno
 
 # ========================================
 # Sensors
@@ -482,7 +596,7 @@ number:
 binary_sensor:
 
   # =========================
-  # LED 2 - EXTERNAL BUTTON 0
+  # LED5_STUDIO - PCF8574 BUTTON 0
   # =========================
   - platform: gpio
     pin:
@@ -500,17 +614,73 @@ binary_sensor:
       then:
         - script.execute:
             id: start_dimming
-            light_id: led_2
+            light_id: led_studio
             button_id: pcf8574_button_0
 
     on_release:
       then:
         - script.execute:
             id: stop_dimming_or_toggle
-            light_id: led_2
+            light_id: led_studio
 
   # =========================
-  # LED 1 - INTERNAL BUTTON 1
+  # LED6_ANTIBAGNO - PCF8574 BUTTON 1
+  # =========================
+  - platform: gpio
+    pin:
+      pcf8574: pcf8574_hub
+      number: 1
+      mode:
+        input: true
+      inverted: true
+    name: "PCF8574 Button P1"
+    id: pcf8574_button_1
+    filters:
+      - delayed_on_off: ${BUTTON_FILTER_DURATION}
+
+    on_press:
+      then:
+        - script.execute:
+            id: start_dimming
+            light_id: led_antibagno
+            button_id: pcf8574_button_1
+
+    on_release:
+      then:
+        - script.execute:
+            id: stop_dimming_or_toggle
+            light_id: led_antibagno
+
+  # =========================
+  # LED7_BAGNO - PCF8574 BUTTON 2
+  # =========================
+  - platform: gpio
+    pin:
+      pcf8574: pcf8574_hub
+      number: 2
+      mode:
+        input: true
+      inverted: true
+    name: "PCF8574 Button P2"
+    id: pcf8574_button_2
+    filters:
+      - delayed_on_off: ${BUTTON_FILTER_DURATION}
+
+    on_press:
+      then:
+        - script.execute:
+            id: start_dimming
+            light_id: led_bagno
+            button_id: pcf8574_button_2
+
+    on_release:
+      then:
+        - script.execute:
+            id: stop_dimming_or_toggle
+            light_id: led_bagno
+
+  # =========================
+  # LED1_CORRIDOIO - INTERNAL BUTTON 1
   # =========================
   - platform: gpio
     pin: 36
@@ -524,17 +694,17 @@ binary_sensor:
       then:
         - script.execute:
             id: start_dimming
-            light_id: led_1
+            light_id: led_corridoio
             button_id: button_1
 
     on_release:
       then:
         - script.execute:
             id: stop_dimming_or_toggle
-            light_id: led_1
+            light_id: led_corridoio
 
   # =========================
-  # LED 3 - INTERNAL BUTTON 2
+  # LED2_CUCINA - INTERNAL BUTTON 2
   # =========================
   - platform: gpio
     pin: 39
@@ -548,17 +718,17 @@ binary_sensor:
       then:
         - script.execute:
             id: start_dimming
-            light_id: led_3
+            light_id: led_cucina
             button_id: button_2
 
     on_release:
       then:
         - script.execute:
             id: stop_dimming_or_toggle
-            light_id: led_3
+            light_id: led_cucina
 
   # =========================
-  # LED 3 CT - INTERNAL BUTTON 3
+  # LED4_SALOTTO - INTERNAL BUTTON 3
   # =========================
   - platform: gpio
     pin: 34
@@ -571,12 +741,12 @@ binary_sensor:
     on_press:
       then:
         - script.execute:
-            id: start_ct_dimming
-            light_id: led_3
+            id: start_dimming
+            light_id: led_salotto
             button_id: button_3
 
     on_release:
       then:
         - script.execute:
-            id: stop_ct_dimming_or_toggle
-            light_id: led_3
+            id: stop_dimming_or_toggle
+            light_id: led_salotto
