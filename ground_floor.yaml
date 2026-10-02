@@ -75,9 +75,9 @@ esphome:
           id(button_registry)["button_1"] = id(button_1);
           id(button_registry)["button_2"] = id(button_2);
           id(button_registry)["button_3"] = id(button_3);
-          id(button_registry)["pcf8574_button_0"] = id(pcf8574_button_0);
-          id(button_registry)["pcf8574_button_1"] = id(pcf8574_button_1);
           id(button_registry)["pcf8574_button_2"] = id(pcf8574_button_2);
+          id(button_registry)["pcf8574_button_4"] = id(pcf8574_button_4);
+          id(button_registry)["pcf8574_button_7"] = id(pcf8574_button_7);
       - delay: 1s  # Wait for light state to fully restore
       - lambda: |-
           ESP_LOGI("max_brightness", "Boot: max_brightness restored to %.0f%%", id(max_brightness).state);
@@ -427,17 +427,6 @@ output:
     pin: 12
     frequency: ${PWM_FREQUENCY}
     zero_means_zero: true
-  - platform: ledc
-    id: LED_CHANNEL_13
-    pin: 5
-    frequency: ${PWM_FREQUENCY}
-    zero_means_zero: true
-  - platform: ledc
-    id: LED_CHANNEL_14
-    pin: 4
-    frequency: ${PWM_FREQUENCY}
-    zero_means_zero: true
-
 light:
   # LED_1 + LED_2 on GPIO27 + GPIO26 -> CCT light
   - platform: cwww
@@ -507,16 +496,13 @@ light:
             id: clamp_brightness
             light_id: led_studio
 
-  # LED_11 + LED_12 on GPIO13 + GPIO12 -> CCT light
-  - platform: cwww
+  # LED_11 on GPIO13 -> monochromatic light
+  - platform: monochromatic
     name: "${ESPHOME_NAME}-LED6_ANTIBAGNO"
     default_transition_length: ${DEFAULT_ONOFF_DURATION}
     gamma_correct: ${GAMMA_CORRECTION}
     id: led_antibagno
-    cold_white: LED_CHANNEL_11
-    warm_white: LED_CHANNEL_12
-    cold_white_color_temperature: ${CW_COLOR_TEMPERATURE}
-    warm_white_color_temperature: ${WW_COLOR_TEMPERATURE}
+    output: LED_CHANNEL_11
     restore_mode: RESTORE_DEFAULT_OFF
     on_state:
       then:
@@ -524,16 +510,13 @@ light:
             id: clamp_brightness
             light_id: led_antibagno
 
-  # LED_13 + LED_14 on GPIO5 + GPIO4 -> CCT light
-  - platform: cwww
+  # LED_12 on GPIO12 -> monochromatic light
+  - platform: monochromatic
     name: "${ESPHOME_NAME}-LED7_BAGNO"
     default_transition_length: ${DEFAULT_ONOFF_DURATION}
     gamma_correct: ${GAMMA_CORRECTION}
     id: led_bagno
-    cold_white: LED_CHANNEL_13
-    warm_white: LED_CHANNEL_14
-    cold_white_color_temperature: ${CW_COLOR_TEMPERATURE}
-    warm_white_color_temperature: ${WW_COLOR_TEMPERATURE}
+    output: LED_CHANNEL_12
     restore_mode: RESTORE_DEFAULT_OFF
     on_state:
       then:
@@ -596,63 +579,7 @@ number:
 binary_sensor:
 
   # =========================
-  # LED5_STUDIO - PCF8574 BUTTON 0
-  # =========================
-  - platform: gpio
-    pin:
-      pcf8574: pcf8574_hub
-      number: 0
-      mode:
-        input: true
-      inverted: true
-    name: "PCF8574 Button P0"
-    id: pcf8574_button_0
-    filters:
-      - delayed_on_off: ${BUTTON_FILTER_DURATION}
-
-    on_press:
-      then:
-        - script.execute:
-            id: start_dimming
-            light_id: led_studio
-            button_id: pcf8574_button_0
-
-    on_release:
-      then:
-        - script.execute:
-            id: stop_dimming_or_toggle
-            light_id: led_studio
-
-  # =========================
-  # LED6_ANTIBAGNO - PCF8574 BUTTON 1
-  # =========================
-  - platform: gpio
-    pin:
-      pcf8574: pcf8574_hub
-      number: 1
-      mode:
-        input: true
-      inverted: true
-    name: "PCF8574 Button P1"
-    id: pcf8574_button_1
-    filters:
-      - delayed_on_off: ${BUTTON_FILTER_DURATION}
-
-    on_press:
-      then:
-        - script.execute:
-            id: start_dimming
-            light_id: led_antibagno
-            button_id: pcf8574_button_1
-
-    on_release:
-      then:
-        - script.execute:
-            id: stop_dimming_or_toggle
-            light_id: led_antibagno
-
-  # =========================
-  # LED7_BAGNO - PCF8574 BUTTON 2
+  # LED5_STUDIO - PCF8574 BUTTON 2
   # =========================
   - platform: gpio
     pin:
@@ -670,8 +597,64 @@ binary_sensor:
       then:
         - script.execute:
             id: start_dimming
-            light_id: led_bagno
+            light_id: led_studio
             button_id: pcf8574_button_2
+
+    on_release:
+      then:
+        - script.execute:
+            id: stop_dimming_or_toggle
+            light_id: led_studio
+
+  # =========================
+  # LED6_ANTIBAGNO - PCF8574 BUTTON 4
+  # =========================
+  - platform: gpio
+    pin:
+      pcf8574: pcf8574_hub
+      number: 4
+      mode:
+        input: true
+      inverted: true
+    name: "PCF8574 Button P4"
+    id: pcf8574_button_4
+    filters:
+      - delayed_on_off: ${BUTTON_FILTER_DURATION}
+
+    on_press:
+      then:
+        - script.execute:
+            id: start_dimming
+            light_id: led_antibagno
+            button_id: pcf8574_button_4
+
+    on_release:
+      then:
+        - script.execute:
+            id: stop_dimming_or_toggle
+            light_id: led_antibagno
+
+  # =========================
+  # LED7_BAGNO - PCF8574 BUTTON 7
+  # =========================
+  - platform: gpio
+    pin:
+      pcf8574: pcf8574_hub
+      number: 7
+      mode:
+        input: true
+      inverted: true
+    name: "PCF8574 Button P7"
+    id: pcf8574_button_7
+    filters:
+      - delayed_on_off: ${BUTTON_FILTER_DURATION}
+
+    on_press:
+      then:
+        - script.execute:
+            id: start_dimming
+            light_id: led_bagno
+            button_id: pcf8574_button_7
 
     on_release:
       then:
