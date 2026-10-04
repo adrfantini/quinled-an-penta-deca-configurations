@@ -340,7 +340,7 @@ script:
             call.set_color_temperature(target);
             call.set_transition_length(transition_ms);
             call.perform();
-            ESP_LOGD("ct", "CT dimming: current=%.0f target=%.0f duration=%ums", current, target, transition_ms);
+            ESP_LOGD("ct", "CT dimming: current=%.0f target=%.0f duration=%lums", current, target, (unsigned long) transition_ms);
           }
 
   # Release: Stop CT dimming (long press) or toggle (short press)
