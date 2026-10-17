@@ -91,7 +91,7 @@ api:
 
 ota:
   - platform: esphome
-    password: !secret p1_ota_password
+    encryption:
 
 logger:
   level: ${LOG_LEVEL}

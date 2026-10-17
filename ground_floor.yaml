@@ -85,11 +85,11 @@ api:
   # causes a very short light outage, but keeps the device reachable.
   reboot_timeout: 60min
   encryption:
-    key: !secret p0_api_key
+    key: !secret p1_api_key
 
 ota:
   - platform: esphome
-    password: !secret p0_ota_password
+    encryption:
 
 logger:
   level: ${LOG_LEVEL}
