@@ -1,5 +1,5 @@
 # Configuration for the QuinLED An-Penta-Deca, ground floor (P0).
-# Shared logic and behaviour description: common.yaml
+# Shared logic and behaviour description: common/quinled.yaml
 # Pinout: pinout.csv, summary: ground_floor_summary.csv
 
 substitutions:
@@ -10,7 +10,7 @@ substitutions:
   OTA_PASSWORD: !secret p0_ota_password
 
 packages:
-  common: !include common.yaml
+  common: !include common/quinled.yaml
 
 esphome:
   on_boot:
