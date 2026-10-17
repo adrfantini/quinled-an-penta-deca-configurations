@@ -1,0 +1,261 @@
+# Shared configuration for the QuinLED An-Penta-Deca boards.
+# Documentation:
+# https://quinled.info/quinled-an-penta-deca-pinout-guide/
+# https://esphome.io/components/light/
+#
+# Each floor file includes this package and defines its own outputs, lights
+# and buttons. Required substitutions in the floor file:
+#   ESPHOME_NAME, AP_SSID, AP_PASSWORD, API_KEY, OTA_PASSWORD
+#
+# Behaviour:
+#   Short press (< MAX_CLICK_DURATION_MS): toggles the light. When turning on,
+#   the previous brightness is restored, kept between MIN_BRIGHTNESS and the
+#   Max Brightness slider.
+#
+#   Long press (>= MAX_CLICK_DURATION_MS, while the light is on): dims toward the
+#   maximum or minimum at constant speed (a full sweep takes
+#   DEFAULT_DIM_DURATION seconds). Release freezes the brightness and reverses
+#   the direction for the next long press. A long press on a light that is
+#   already at one end always moves away from that end.
+#
+#   Long press while the light is off: the light turns on when released.
+#
+#   Max Brightness (Night Mode): a slider exposed to Home Assistant caps the
+#   brightness of every light, whatever the source of the change. Its value
+#   survives reboots.
+#
+# Adding a new light + button in a floor file:
+#   1. Add an output, light and binary_sensor entry.
+#   2. Register them in the on_boot lambda (light_registry / button_registry).
+#   3. Light on_state -> clamp_brightness.
+#   4. Button on_press -> start_dimming, on_release -> stop_dimming_or_toggle.
+
+substitutions:
+  MIN_BRIGHTNESS: "12"          # Minimum brightness (%)
+  DEFAULT_DIM_DURATION: "4"     # Full-range dimming duration (s); integer, used in lambdas
+  DEFAULT_ONOFF_DURATION: 400ms # On/off transition
+  IMMEDIATE_TRANSITION: "0"     # Immediate transition (ms); integer, used in lambdas
+  MAX_CLICK_DURATION_MS: "400"  # Longer presses count as long presses (ms); integer, used in lambdas
+  BUTTON_FILTER_DURATION: 50ms
+  PWM_FREQUENCY: 19531Hz
+  GAMMA_CORRECTION: "2.8"
+  LOG_LEVEL: DEBUG              # NONE, ERROR, WARN, INFO, DEBUG, VERBOSE, VERY_VERBOSE
+  WW_COLOR_TEMPERATURE: 2700 K
+  CW_COLOR_TEMPERATURE: 5500 K
+
+esphome:
+  name: ${ESPHOME_NAME}
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  domain: .domain.local
+  ap:
+    ssid: ${AP_SSID}
+    password: ${AP_PASSWORD}
+
+captive_portal:
+
+web_server:
+  port: 80
+
+api:
+  # Reboots the device if the API connection is lost for 60 minutes. This
+  # causes a very short light outage, but keeps the device reachable.
+  reboot_timeout: 60min
+  encryption:
+    key: ${API_KEY}
+
+ota:
+  - platform: esphome
+    password: ${OTA_PASSWORD}
+
+logger:
+  level: ${LOG_LEVEL}
+
+i2c:
+  sda: 15
+  scl: 16
+  scan: true
+
+pcf8574:
+  - id: pcf8574_hub
+    address: 0x20
+
+globals:
+  - id: dim_direction
+    type: std::map<std::string, bool>
+    restore_value: false
+    # Per-light dim direction: true = UP, false = DOWN
+  - id: is_dimming
+    type: std::map<std::string, bool>
+    restore_value: false
+  - id: press_time
+    type: std::map<std::string, uint32_t>
+    restore_value: false
+    # Per-button time of the last press, so a pending long press check from
+    # an earlier press is ignored after a quick release and press again
+  - id: light_registry
+    type: std::map<std::string, esphome::light::LightState *>
+    restore_value: false
+  - id: button_registry
+    type: std::map<std::string, esphome::binary_sensor::BinarySensor *>
+    restore_value: false
+
+script:
+  # Run from the floor's on_boot, after the registries are filled
+  - id: init_dim_directions
+    then:
+      - delay: 1s  # Wait for light states to fully restore
+      - lambda: |-
+          for (auto &pair : id(light_registry)) {
+            id(set_dim_direction_from_brightness).execute(pair.first);
+          }
+          ESP_LOGI("max_brightness", "Boot: max_brightness restored to %.0f%%", id(max_brightness).state);
+
+  - id: set_dim_direction_from_brightness
+    mode: parallel
+    parameters:
+      light_id: string
+    then:
+      - lambda: |-
+          auto *light = id(light_registry)[light_id];
+          if (light && light->remote_values.is_on()) {
+            float midpoint = (${MIN_BRIGHTNESS} / 100.0f + id(max_brightness).state / 100.0f) / 2.0f;
+            id(dim_direction)[light_id] = light->remote_values.get_brightness() <= midpoint;
+          } else {
+            id(dim_direction)[light_id] = true;
+          }
+
+  - id: clamp_brightness
+    mode: parallel
+    parameters:
+      light_id: string
+    then:
+      - lambda: |-
+          auto *light = id(light_registry)[light_id];
+          if (!light || !light->remote_values.is_on()) return;
+          float brightness = light->remote_values.get_brightness();
+          float minimum = ${MIN_BRIGHTNESS} / 100.0f;
+          float maximum = id(max_brightness).state / 100.0f;
+          float clamped = std::min(std::max(brightness, minimum), maximum);
+          if (fabsf(brightness - clamped) > 0.001f) {
+            // Default transition, so a turn-on above the cap still fades in
+            auto call = light->turn_on();
+            call.set_brightness(clamped);
+            call.perform();
+          }
+
+  - id: toggle_light
+    mode: parallel
+    parameters:
+      light_id: string
+    then:
+      - lambda: |-
+          auto *light = id(light_registry)[light_id];
+          if (light) light->toggle().perform();
+      - script.execute:
+          id: set_dim_direction_from_brightness
+          light_id: !lambda 'return light_id;'
+
+  - id: start_dimming
+    mode: parallel
+    parameters:
+      light_id: string
+      button_id: string
+    then:
+      - lambda: 'id(press_time)[button_id] = millis();'
+      - delay: ${MAX_CLICK_DURATION_MS}ms
+      - lambda: |-
+          auto *button = id(button_registry)[button_id];
+          auto *light = id(light_registry)[light_id];
+          // A later press is still within its own click window
+          if (millis() - id(press_time)[button_id] + 10 < ${MAX_CLICK_DURATION_MS}) return;
+          if (!button || !button->state || !light || !light->remote_values.is_on() || id(is_dimming)[light_id]) return;
+          id(is_dimming)[light_id] = true;
+          float minimum = ${MIN_BRIGHTNESS} / 100.0f;
+          float maximum = id(max_brightness).state / 100.0f;
+          float current = light->remote_values.get_brightness();
+          // Always move away from an end, even if the stored direction points at it
+          if (current >= maximum - 0.01f) id(dim_direction)[light_id] = false;
+          else if (current <= minimum + 0.01f) id(dim_direction)[light_id] = true;
+          float target = id(dim_direction)[light_id] ? maximum : minimum;
+          float range = maximum - minimum;
+          uint32_t transition_ms = range > 0.0f
+              ? (uint32_t)(${DEFAULT_DIM_DURATION} * 1000.0f * fabsf(target - current) / range)
+              : 0;
+          auto call = light->turn_on();
+          call.set_brightness(target);
+          call.set_transition_length(transition_ms);
+          call.perform();
+
+  - id: stop_dimming_or_toggle
+    mode: parallel
+    parameters:
+      light_id: string
+    then:
+      - if:
+          condition:
+            lambda: 'return id(is_dimming)[light_id];'
+          then:
+            - lambda: |-
+                auto *light = id(light_registry)[light_id];
+                if (light) {
+                  auto call = light->turn_on();
+                  call.set_brightness(light->current_values.get_brightness());
+                  call.set_transition_length(${IMMEDIATE_TRANSITION});
+                  call.perform();
+                  id(dim_direction)[light_id] = !id(dim_direction)[light_id];
+                }
+                id(is_dimming)[light_id] = false;
+          else:
+            - script.execute:
+                id: toggle_light
+                light_id: !lambda 'return light_id;'
+
+number:
+  - platform: template
+    name: "${ESPHOME_NAME} Max Brightness"
+    id: max_brightness
+    icon: mdi:brightness-percent
+    unit_of_measurement: "%"
+    min_value: ${MIN_BRIGHTNESS}
+    max_value: 100
+    step: 5
+    initial_value: 100
+    restore_value: true
+    optimistic: true
+    set_action:
+      - lambda: |-
+          ESP_LOGI("max_brightness", "Max brightness changed to %.0f%%", x);
+          float maximum = x / 100.0f;
+          for (auto &pair : id(light_registry)) {
+            auto *light = pair.second;
+            if (light && light->remote_values.is_on() &&
+                light->remote_values.get_brightness() > maximum) {
+              auto call = light->turn_on();
+              call.set_brightness(maximum);
+              call.set_transition_length(${IMMEDIATE_TRANSITION});
+              call.perform();
+            }
+          }
+
+sensor:
+  - platform: uptime
+    name: "${ESPHOME_NAME} Uptime"
+  - platform: internal_temperature
+    name: "${ESPHOME_NAME} Internal Temperature"
+    unit_of_measurement: "°C"
+  - platform: wifi_signal
+    name: "${ESPHOME_NAME} WiFi Signal"
+    update_interval: 60s
+
+switch:
+  - platform: restart
+    name: "${ESPHOME_NAME} Restart"
+    id: restart_switch

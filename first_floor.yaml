@@ -1,29 +1,20 @@
 # Configuration for the QuinLED An-Penta-Deca, first floor (P1).
-# Documentation:
-# https://quinled.info/quinled-an-penta-deca-pinout-guide/
-# https://esphome.io/components/light/
-#
-# Short button press toggles the assigned light. Long press dims between
-# MIN_BRIGHTNESS and max_brightness; CCT color temperature is adjustable from HA.
+# Shared logic and behaviour description: common.yaml
+# Pinout: pinout.csv, summary: first_floor_summary.csv
 
 substitutions:
   ESPHOME_NAME: quinled-an-penta-deca-p1
-  MIN_BRIGHTNESS: 12
-  DEFAULT_DIM_DURATION: 4
-  DEFAULT_ONOFF_DURATION: 400ms
-  IMMEDIATE_TRANSITION: 0
-  MAX_CLICK_DURATION: 400ms
-  BUTTON_FILTER_DURATION: 50ms
-  PWM_FREQUENCY: 19531Hz
-  GAMMA_CORRECTION: 2.8
-  LOG_LEVEL: DEBUG
-  WW_COLOR_TEMPERATURE: 2700 K
-  CW_COLOR_TEMPERATURE: 5500 K
+  AP_SSID: "Test-An-Penta-Deca-P1"
+  AP_PASSWORD: !secret p1_ap_password
+  API_KEY: !secret p1_api_key
+  OTA_PASSWORD: !secret p1_ota_password
+
+packages:
+  common: !include common.yaml
 
 esphome:
-  name: ${ESPHOME_NAME}
   on_boot:
-    priority: -100
+    priority: -100  # Run after lights are restored
     then:
       - lambda: |-
           id(light_registry)["led5_matrimoniale"] = id(led5_matrimoniale);
@@ -40,177 +31,7 @@ esphome:
           id(button_registry)["button_1"] = id(button_1);
           id(button_registry)["button_2"] = id(button_2);
           id(button_registry)["button_3"] = id(button_3);
-      - delay: 1s
-      - script.execute:
-          id: set_dim_direction_from_brightness
-          light_id: led5_matrimoniale
-      - script.execute:
-          id: set_dim_direction_from_brightness
-          light_id: led2_studio
-      - script.execute:
-          id: set_dim_direction_from_brightness
-          light_id: led3_cameretta_armadio
-      - script.execute:
-          id: set_dim_direction_from_brightness
-          light_id: led4_cameretta_luce
-      - script.execute:
-          id: set_dim_direction_from_brightness
-          light_id: led6_cameretta_soppalco
-      - script.execute:
-          id: set_dim_direction_from_brightness
-          light_id: led1_corridoio
-      - script.execute:
-          id: set_dim_direction_from_brightness
-          light_id: led7_scale
-      - lambda: |-
-          ESP_LOGI("max_brightness", "Boot: max_brightness restored to %.0f%%", id(max_brightness).state);
-
-esp32:
-  board: esp32dev
-  framework:
-    type: esp-idf
-
-wifi:
-  ssid: !secret wifi_ssid
-  password: !secret wifi_password
-  domain: .domain.local
-  ap:
-    ssid: "Test-An-Penta-Deca-P1"
-    password: "REDACTED"
-
-captive_portal:
-
-web_server:
-  port: 80
-
-api:
-  reboot_timeout: 60min
-  encryption:
-    key: "REDACTED"
-
-ota:
-  - platform: esphome
-    password: "REDACTED"
-
-logger:
-  level: ${LOG_LEVEL}
-
-i2c:
-  sda: 15
-  scl: 16
-  scan: true
-
-pcf8574:
-  - id: pcf8574_hub
-    address: 0x20
-
-globals:
-  - id: dim_direction
-    type: std::map<std::string, bool>
-    restore_value: false
-  - id: is_dimming
-    type: std::map<std::string, bool>
-    restore_value: false
-  - id: light_registry
-    type: std::map<std::string, esphome::light::LightState *>
-    restore_value: false
-  - id: button_registry
-    type: std::map<std::string, esphome::binary_sensor::BinarySensor *>
-    restore_value: false
-
-script:
-  - id: set_dim_direction_from_brightness
-    mode: parallel
-    parameters:
-      light_id: string
-    then:
-      - lambda: |-
-          auto *light = id(light_registry)[light_id];
-          if (light && light->remote_values.is_on()) {
-            id(dim_direction)[light_id] = light->remote_values.get_brightness() <= 0.5f;
-          } else {
-            id(dim_direction)[light_id] = true;
-          }
-
-  - id: clamp_brightness
-    mode: parallel
-    parameters:
-      light_id: string
-    then:
-      - lambda: |-
-          auto *light = id(light_registry)[light_id];
-          if (!light || !light->remote_values.is_on()) return;
-          float brightness = light->remote_values.get_brightness();
-          float minimum = ${MIN_BRIGHTNESS} / 100.0f;
-          float maximum = id(max_brightness).state / 100.0f;
-          float clamped = std::min(std::max(brightness, minimum), maximum);
-          if (fabsf(brightness - clamped) > 0.001f) {
-            auto call = light->turn_on();
-            call.set_brightness(clamped);
-            call.set_transition_length(${IMMEDIATE_TRANSITION});
-            call.perform();
-          }
-
-  - id: toggle_light
-    mode: parallel
-    parameters:
-      light_id: string
-    then:
-      - lambda: |-
-          auto *light = id(light_registry)[light_id];
-          if (light) light->toggle().perform();
-      - script.execute:
-          id: set_dim_direction_from_brightness
-          light_id: !lambda 'return light_id;'
-
-  - id: start_dimming
-    mode: parallel
-    parameters:
-      light_id: string
-      button_id: string
-    then:
-      - delay: ${MAX_CLICK_DURATION}
-      - lambda: |-
-          auto *button = id(button_registry)[button_id];
-          auto *light = id(light_registry)[light_id];
-          if (!button || !button->state || !light || !light->remote_values.is_on() || id(is_dimming)[light_id]) return;
-          id(is_dimming)[light_id] = true;
-          float minimum = ${MIN_BRIGHTNESS} / 100.0f;
-          float maximum = id(max_brightness).state / 100.0f;
-          float current = light->remote_values.get_brightness();
-          float target = id(dim_direction)[light_id] ? maximum : minimum;
-          float range = maximum - minimum;
-          uint32_t transition_ms = range > 0.0f
-              ? (uint32_t)(${DEFAULT_DIM_DURATION} * 1000.0f * fabsf(target - current) / range)
-              : 0;
-          auto call = light->turn_on();
-          call.set_brightness(target);
-          call.set_transition_length(transition_ms);
-          call.perform();
-
-  - id: stop_dimming_or_toggle
-    mode: parallel
-    parameters:
-      light_id: string
-    then:
-      - if:
-          condition:
-            lambda: 'return id(is_dimming)[light_id];'
-          then:
-            - lambda: |-
-                auto *light = id(light_registry)[light_id];
-                if (light) {
-                  auto call = light->turn_on();
-                  call.set_brightness(light->current_values.get_brightness());
-                  call.set_transition_length(${IMMEDIATE_TRANSITION});
-                  call.perform();
-                  id(dim_direction)[light_id] = !id(dim_direction)[light_id];
-                }
-                id(is_dimming)[light_id] = false;
-          else:
-            - script.execute:
-                id: toggle_light
-                light_id: !lambda 'return light_id;'
+      - script.execute: init_dim_directions
 
 output:
   - platform: ledc
@@ -366,48 +187,6 @@ light:
         - script.execute:
             id: clamp_brightness
             light_id: led7_scale
-
-number:
-  - platform: template
-    name: "${ESPHOME_NAME} Max Brightness"
-    id: max_brightness
-    icon: mdi:brightness-percent
-    unit_of_measurement: "%"
-    min_value: ${MIN_BRIGHTNESS}
-    max_value: 100
-    step: 5
-    initial_value: 100
-    restore_value: true
-    optimistic: true
-    set_action:
-      - lambda: |-
-          ESP_LOGI("max_brightness", "Max brightness changed to %.0f%%", x);
-          float maximum = x / 100.0f;
-          for (auto &pair : id(light_registry)) {
-            auto *light = pair.second;
-            if (light && light->remote_values.is_on() &&
-                light->remote_values.get_brightness() > maximum) {
-              auto call = light->turn_on();
-              call.set_brightness(maximum);
-              call.set_transition_length(${IMMEDIATE_TRANSITION});
-              call.perform();
-            }
-          }
-
-sensor:
-  - platform: uptime
-    name: "${ESPHOME_NAME} Uptime"
-  - platform: internal_temperature
-    name: "${ESPHOME_NAME} Internal Temperature"
-    unit_of_measurement: "°C"
-  - platform: wifi_signal
-    name: "${ESPHOME_NAME} WiFi Signal"
-    update_interval: 60s
-
-switch:
-  - platform: restart
-    name: "${ESPHOME_NAME} Restart"
-    id: restart_switch
 
 binary_sensor:
   # External controls use the PCF8574 port numbers directly.
