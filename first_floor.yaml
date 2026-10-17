@@ -219,11 +219,6 @@ output:
     frequency: ${PWM_FREQUENCY}
     zero_means_zero: true
   - platform: ledc
-    id: LED_CHANNEL_2
-    pin: 26
-    frequency: ${PWM_FREQUENCY}
-    zero_means_zero: true
-  - platform: ledc
     id: LED_CHANNEL_3
     pin: 25
     frequency: ${PWM_FREQUENCY}
@@ -259,19 +254,23 @@ output:
     frequency: ${PWM_FREQUENCY}
     zero_means_zero: true
   - platform: ledc
-    id: LED_CHANNEL_11
-    pin: 13
+    id: LED_CHANNEL_14
+    pin: 4
+    frequency: ${PWM_FREQUENCY}
+    zero_means_zero: true
+  - platform: ledc
+    id: LED_CHANNEL_15
+    pin:
+      number: 2
+      ignore_strapping_warning: true  # Only relevant for serial flashing; pulled low at boot
     frequency: ${PWM_FREQUENCY}
     zero_means_zero: true
 
 light:
-  - platform: cwww
+  - platform: monochromatic
     name: "${ESPHOME_NAME}-led5_matrimoniale"
     id: led5_matrimoniale
-    cold_white: LED_CHANNEL_1
-    warm_white: LED_CHANNEL_2
-    cold_white_color_temperature: ${CW_COLOR_TEMPERATURE}
-    warm_white_color_temperature: ${WW_COLOR_TEMPERATURE}
+    output: LED_CHANNEL_1
     gamma_correct: ${GAMMA_CORRECTION}
     default_transition_length: ${DEFAULT_ONOFF_DURATION}
     restore_mode: RESTORE_DEFAULT_OFF
@@ -336,10 +335,13 @@ light:
             id: clamp_brightness
             light_id: led6_cameretta_soppalco
 
-  - platform: monochromatic
+  - platform: cwww
     name: "${ESPHOME_NAME}-led1_corridoio"
     id: led1_corridoio
-    output: LED_CHANNEL_11
+    cold_white: LED_CHANNEL_14
+    warm_white: LED_CHANNEL_15
+    cold_white_color_temperature: ${CW_COLOR_TEMPERATURE}
+    warm_white_color_temperature: ${WW_COLOR_TEMPERATURE}
     gamma_correct: ${GAMMA_CORRECTION}
     default_transition_length: ${DEFAULT_ONOFF_DURATION}
     restore_mode: RESTORE_DEFAULT_OFF
