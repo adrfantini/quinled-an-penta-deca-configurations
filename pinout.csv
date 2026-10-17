@@ -1,0 +1,23 @@
+Button_1,GPIO_36,"Button/Switch/Sensor connection (Pulled High, HW Debounce)"
+Button_2,GPIO_39,"Button/Switch/Sensor connection (Pulled High, HW Debounce)"
+Button_3,GPIO_34,"Button/Switch/Sensor connection (Pulled High, HW Debounce)"
+Button_4,GPIO_33,
+,,
+I²C SDA,GPIO_15,External I²C connections using Stemma QT/Qwiic connector
+I²C SCL,GPIO_16,External I²C connections using Stemma QT/Qwiic connector
+,,
+LED_1,GPIO_27,LED_1 PWM Output (R)
+LED_2,GPIO_26,LED_2 PWM Output (G)
+LED_3,GPIO_25,LED_3 PWM Output (B)
+LED_4,GPIO_23,LED_4 PWM Output (WW)
+LED_5,GPIO_22,LED_5 PWM Output (CW)
+LED_6,GPIO_21,LED_6 PWM Output (R)
+LED_7,GPIO_19,LED_7 PWM Output (G)
+LED_8,GPIO_18,LED_8 PWM Output (B)
+LED_9,GPIO_17,LED_9 PWM Output (WW)
+LED_10,GPIO_14,LED_10 PWM Output (CW)
+LED_11,GPIO_13,LED_11 PWM Output (R)
+LED_12,GPIO_12,LED_12 PWM Output (G)
+LED_13,GPIO_5,LED_13 PWM Output (B)
+LED_14,GPIO_4,LED_14 PWM Output (WW)
+LED_15,GPIO_2,LED_15 PWM Output (CW)
