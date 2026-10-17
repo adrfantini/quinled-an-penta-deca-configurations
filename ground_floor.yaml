@@ -16,11 +16,16 @@
 #   the direction for the next long press. A long press on a light that is
 #   already at one end always moves away from that end.
 #
-#   Long press while the light is off: the light turns on when released.
+#   Long press while the light is off: night light. The light turns on at the
+#   Night Light Brightness slider value (CCT lights at their warmest color
+#   temperature) without waiting for the release. Holding longer does nothing
+#   more; the next long press dims from there.
 #
 #   Max Brightness (Night Mode): a slider exposed to Home Assistant caps the
-#   brightness of every light, whatever the source of the change. Its value
-#   survives reboots.
+#   brightness of every light, whatever the source of the change.
+#
+#   Both sliders survive reboots; a restored value below MIN_BRIGHTNESS (e.g.
+#   after raising the minimum) is raised to MIN_BRIGHTNESS at boot.
 #
 # Adding a new light + button:
 #   1. Add an output, light and binary_sensor entry.
@@ -30,7 +35,7 @@
 
 substitutions:
   ESPHOME_NAME: quinled-an-penta-deca-p0
-  MIN_BRIGHTNESS: "12"          # Minimum brightness (%)
+  MIN_BRIGHTNESS: "25"          # Minimum brightness (%)
   DEFAULT_DIM_DURATION: "4"     # Full-range dimming duration (s); integer, used in lambdas
   DEFAULT_ONOFF_DURATION: 400ms # On/off transition
   IMMEDIATE_TRANSITION: "0"     # Immediate transition (ms); integer, used in lambdas
@@ -72,20 +77,21 @@ wifi:
   password: !secret wifi_password
   domain: .domain.local
   ap:
-    ssid: "Test-An-Penta-Deca"
+    ssid: "${ESPHOME_NAME}"
     password: !secret p0_ap_password
 
 captive_portal:
 
 web_server:
   port: 80
+  ota: false  # Firmware uploads only via the encrypted esphome OTA
 
 api:
   # Reboots the device if the API connection is lost for 60 minutes. This
   # causes a very short light outage, but keeps the device reachable.
   reboot_timeout: 60min
   encryption:
-    key: !secret p1_api_key
+    key: !secret p0_api_key
 
 ota:
   - platform: esphome
@@ -97,7 +103,7 @@ logger:
 i2c:
   sda: 15
   scl: 16
-  scan: true
+  scan: false
 
 pcf8574:
   - id: pcf8574_hub
@@ -111,6 +117,11 @@ globals:
   - id: is_dimming
     type: std::map<std::string, bool>
     restore_value: false
+  - id: long_press_turned_on
+    type: std::map<std::string, bool>
+    restore_value: false
+    # Per-light flag: the current long press turned the light on, so its
+    # release must not toggle it off again
   - id: press_time
     type: std::map<std::string, uint32_t>
     restore_value: false
@@ -124,11 +135,21 @@ globals:
     restore_value: false
 
 script:
-  # Run from the floor's on_boot, after the registries are filled
+  # Run from on_boot, after the registries are filled
   - id: init_dim_directions
     then:
       - delay: 1s  # Wait for light states to fully restore
       - lambda: |-
+          // Restored slider values may be below a since-raised minimum
+          for (auto *slider : {id(max_brightness), id(night_light_brightness)}) {
+            if (slider->state < ${MIN_BRIGHTNESS}) {
+              ESP_LOGW("boot", "Raising %s from %.0f%% to the %s%% minimum",
+                       slider->get_name().c_str(), slider->state, "${MIN_BRIGHTNESS}");
+              auto call = slider->make_call();
+              call.set_value(${MIN_BRIGHTNESS});
+              call.perform();
+            }
+          }
           for (auto &pair : id(light_registry)) {
             id(set_dim_direction_from_brightness).execute(pair.first);
           }
@@ -192,7 +213,17 @@ script:
           auto *light = id(light_registry)[light_id];
           // A later press is still within its own click window
           if (millis() - id(press_time)[button_id] + 10 < ${MAX_CLICK_DURATION_MS}) return;
-          if (!button || !button->state || !light || !light->remote_values.is_on() || id(is_dimming)[light_id]) return;
+          if (!button || !button->state || !light || id(is_dimming)[light_id]) return;
+          if (!light->remote_values.is_on()) {
+            // Long press from off: night light, warm on CCT lights
+            auto call = light->turn_on();
+            call.set_brightness(id(night_light_brightness).state / 100.0f);
+            call.set_color_temperature_if_supported(light->get_traits().get_max_mireds());
+            call.perform();
+            id(dim_direction)[light_id] = true;
+            id(long_press_turned_on)[light_id] = true;
+            return;
+          }
           id(is_dimming)[light_id] = true;
           float minimum = ${MIN_BRIGHTNESS} / 100.0f;
           float maximum = id(max_brightness).state / 100.0f;
@@ -230,9 +261,16 @@ script:
                 }
                 id(is_dimming)[light_id] = false;
           else:
-            - script.execute:
-                id: toggle_light
-                light_id: !lambda 'return light_id;'
+            - if:
+                condition:
+                  lambda: 'return id(long_press_turned_on)[light_id];'
+                then:
+                  # Long press from off already turned the light on
+                  - lambda: 'id(long_press_turned_on)[light_id] = false;'
+                else:
+                  - script.execute:
+                      id: toggle_light
+                      light_id: !lambda 'return light_id;'
 
 output:
   - platform: ledc
@@ -281,8 +319,8 @@ output:
     frequency: ${PWM_FREQUENCY}
     zero_means_zero: true
   - platform: ledc
-    id: LED_CHANNEL_12
-    pin: 12
+    id: LED_CHANNEL_14
+    pin: 4
     frequency: ${PWM_FREQUENCY}
     zero_means_zero: true
 
@@ -369,13 +407,13 @@ light:
             id: clamp_brightness
             light_id: led_bagno
 
-  # LED_12 on GPIO12 -> monochromatic light
+  # LED_14 on GPIO4 -> monochromatic light
   - platform: monochromatic
     name: "${ESPHOME_NAME}-LED7_ANTIBAGNO"
     default_transition_length: ${DEFAULT_ONOFF_DURATION}
     gamma_correct: ${GAMMA_CORRECTION}
     id: led_antibagno
-    output: LED_CHANNEL_12
+    output: LED_CHANNEL_14
     restore_mode: RESTORE_DEFAULT_OFF
     on_state:
       then:
@@ -567,6 +605,18 @@ number:
               call.perform();
             }
           }
+
+  - platform: template
+    name: "${ESPHOME_NAME} Night Light Brightness"
+    id: night_light_brightness
+    icon: mdi:weather-night
+    unit_of_measurement: "%"
+    min_value: ${MIN_BRIGHTNESS}
+    max_value: 100
+    step: 5
+    initial_value: ${MIN_BRIGHTNESS}
+    restore_value: true
+    optimistic: true
 
 sensor:
   - platform: uptime
