@@ -41,7 +41,7 @@
 
 
 substitutions:
-  ESPHOME_NAME: an-penta-deca-ground-floor
+  ESPHOME_NAME: quinled-an-penta-deca-p0
   MIN_BRIGHTNESS: 12          # Minimum brightness threshold (in %)
   DEFAULT_DIM_DURATION: 4       # Duration of full-range dimming transition (seconds, used in lambdas as *1000) - this needs to be an integer for lambda usage
                                 # Duration is then rescaled based on this and the actual range

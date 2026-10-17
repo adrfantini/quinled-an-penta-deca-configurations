@@ -1,4 +1,4 @@
- (GPIO 27 and 26)# Configuration for the QuinLED An-Penta-Deca, first floor (P1).
+# Configuration for the QuinLED An-Penta-Deca, first floor (P1).
 # Documentation:
 # https://quinled.info/quinled-an-penta-deca-pinout-guide/
 # https://esphome.io/components/light/
@@ -249,23 +249,18 @@ output:
     frequency: ${PWM_FREQUENCY}
     zero_means_zero: true
   - platform: ledc
+    id: LED_CHANNEL_9
+    pin: 17
+    frequency: ${PWM_FREQUENCY}
+    zero_means_zero: true
+  - platform: ledc
+    id: LED_CHANNEL_10
+    pin: 14
+    frequency: ${PWM_FREQUENCY}
+    zero_means_zero: true
+  - platform: ledc
     id: LED_CHANNEL_11
     pin: 13
-    frequency: ${PWM_FREQUENCY}
-    zero_means_zero: true
-  - platform: ledc
-    id: LED_CHANNEL_12
-    pin: 12
-    frequency: ${PWM_FREQUENCY}
-    zero_means_zero: true
-  - platform: ledc
-    id: LED_CHANNEL_13
-    pin: 5
-    frequency: ${PWM_FREQUENCY}
-    zero_means_zero: true
-  - platform: ledc
-    id: LED_CHANNEL_14
-    pin: 4
     frequency: ${PWM_FREQUENCY}
     zero_means_zero: true
 
@@ -341,13 +336,10 @@ light:
             id: clamp_brightness
             light_id: led6_cameretta_soppalco
 
-  - platform: cwww
+  - platform: monochromatic
     name: "${ESPHOME_NAME}-led1_corridoio"
     id: led1_corridoio
-    cold_white: LED_CHANNEL_11
-    warm_white: LED_CHANNEL_12
-    cold_white_color_temperature: ${CW_COLOR_TEMPERATURE}
-    warm_white_color_temperature: ${WW_COLOR_TEMPERATURE}
+    output: LED_CHANNEL_11
     gamma_correct: ${GAMMA_CORRECTION}
     default_transition_length: ${DEFAULT_ONOFF_DURATION}
     restore_mode: RESTORE_DEFAULT_OFF
@@ -360,8 +352,8 @@ light:
   - platform: cwww
     name: "${ESPHOME_NAME}-led7_scale"
     id: led7_scale
-    cold_white: LED_CHANNEL_13
-    warm_white: LED_CHANNEL_14
+    cold_white: LED_CHANNEL_9
+    warm_white: LED_CHANNEL_10
     cold_white_color_temperature: ${CW_COLOR_TEMPERATURE}
     warm_white_color_temperature: ${WW_COLOR_TEMPERATURE}
     gamma_correct: ${GAMMA_CORRECTION}
